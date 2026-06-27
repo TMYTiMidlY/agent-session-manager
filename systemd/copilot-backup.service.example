@@ -1,0 +1,13 @@
+[Unit]
+Description=Copilot session history incremental backup (restic)
+Documentation=https://github.com/restic/restic
+
+[Service]
+Type=oneshot
+# ⚠️ 把下面 3 行的绝对路径改成你本机的 backup.sh / backup.log
+ExecStart=%h/TiMidlY-projects/copilot-backup/backup.sh
+StandardOutput=append:%h/TiMidlY-projects/copilot-backup/backup.log
+StandardError=append:%h/TiMidlY-projects/copilot-backup/backup.log
+# 跑慢一点也不抢资源（HDD 后端友好）
+Nice=10
+IOSchedulingClass=idle

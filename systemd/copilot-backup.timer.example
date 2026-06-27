@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Copilot history incremental backup timer
+
+[Timer]
+# 每天触发一次（午夜后 0-10 分钟随机抖动，避免整点拥塞）
+OnCalendar=daily
+RandomizedDelaySec=600
+# 关机期间错过的触发，下次启动后补跑
+Persistent=true
+
+[Install]
+WantedBy=timers.target

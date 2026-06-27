@@ -1,0 +1,5 @@
+# 凭据 (S3 AK/SK + restic 密码)。**永远不要 track**。
+secrets.env
+
+# backup.sh 的运行时追加日志；每次跑 backup 都会追加，进 git 没意义。
+backup.log

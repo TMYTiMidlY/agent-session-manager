@@ -1,0 +1,11 @@
+# restic 排除清单 —— 只放 glob（与具体部署 / 用户 home 路径无关）
+# 锚定到 $COPILOT 下的路径（logs/、rewind-snapshots/）在 backup.sh 里用
+# $COPILOT 拼出 --exclude 传入，避免在此处硬编码绝对路径。
+
+# SQLite WAL / SHM 热文件：只备份主 .db（备份前会 checkpoint 合并），
+# 避免抓到不一致的三件套。
+*.db-wal
+*.db-shm
+
+# 运行时锁文件
+*.lock
