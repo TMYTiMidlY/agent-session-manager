@@ -18,6 +18,21 @@ export interface SessionRef {
 
 export type TimelineRole = "user" | "assistant" | "tool" | "reasoning" | "system" | "event";
 
+export type ToolResultKind = "success" | "failure" | "rejected" | "denied" | "pending";
+
+export interface ToolDetail {
+  callId?: string;
+  name?: string;
+  arguments?: unknown;
+  intentionSummary?: string;
+  partialOutput?: string;
+  result?: {
+    type: ToolResultKind;
+    log?: string;
+    markdown?: boolean;
+  };
+}
+
 export interface TimelineEntry {
   index: number;
   role: TimelineRole;
@@ -26,6 +41,12 @@ export interface TimelineEntry {
   timestamp?: string;
   title?: string;
   rawType?: string;
+  /** Populated for merged tool entries (start+complete paired by callId). */
+  tool?: ToolDetail;
+  /** Optional detail/expandable body (e.g. system.notification `kind` payload). */
+  detail?: string;
+  /** Extra structured payload — used by handoff / task_complete / group / compaction. */
+  data?: Record<string, unknown>;
 }
 
 export interface ParsedSession extends SessionRef {

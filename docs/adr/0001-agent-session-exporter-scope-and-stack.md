@@ -1,4 +1,4 @@
-# ADR 0001: Scope and stack for session-recall
+# ADR 0001: Scope and stack for agent-session-exporter
 
 ## Status
 
@@ -12,7 +12,7 @@ The backup layer remains useful, but only as one archive source. We are not tryi
 
 ## Decision
 
-Use the repository name `session-recall` and expose a short CLI binary named `recall`.
+Use the repository name `agent-session-exporter` and expose a short CLI binary named `recall`.
 
 Implement the project as a pnpm-managed TypeScript workspace:
 

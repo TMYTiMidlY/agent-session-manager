@@ -29,12 +29,15 @@ importers:
 
   packages/cli:
     dependencies:
-      '@session-recall/core':
+      '@agent-session-exporter/core':
         specifier: workspace:*
         version: link:../core
-      '@session-recall/html':
+      '@agent-session-exporter/html':
         specifier: workspace:*
         version: link:../html
+      '@agent-session-exporter/markdown':
+        specifier: workspace:*
+        version: link:../markdown
       commander:
         specifier: ^14.0.0
         version: 14.0.3
@@ -43,12 +46,15 @@ importers:
 
   packages/html:
     dependencies:
-      '@session-recall/core':
+      '@agent-session-exporter/core':
         specifier: workspace:*
         version: link:../core
       katex:
         specifier: ^0.17.0
         version: 0.17.0
+      lucide-static:
+        specifier: ^0.483.0
+        version: 0.483.0
       react:
         specifier: ^19.2.0
         version: 19.2.7
@@ -67,6 +73,12 @@ importers:
       remark-math:
         specifier: ^6.0.0
         version: 6.0.0
+
+  packages/markdown:
+    dependencies:
+      '@agent-session-exporter/core':
+        specifier: workspace:*
+        version: link:../core
 
 packages:
 
@@ -662,6 +674,9 @@ packages:
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
+
+  lucide-static@0.483.0:
+    resolution: {integrity: sha512-5gjqr5N+95YHPz6qTUbfLX3DJqE8y5esr9o+zumeus8SiJBSPYg5vpuIJ9iGyfKajC/3fLlA4XtkRRlR1bc3eQ==}
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
@@ -1572,6 +1587,8 @@ snapshots:
       lightningcss-win32-x64-msvc: 1.32.0
 
   longest-streak@3.1.0: {}
+
+  lucide-static@0.483.0: {}
 
   magic-string@0.30.21:
     dependencies:

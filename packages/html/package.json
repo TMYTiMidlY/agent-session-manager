@@ -1,5 +1,5 @@
 {
-  "name": "@session-recall/html",
+  "name": "@agent-session-exporter/html",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -11,8 +11,9 @@
     "test": "vitest run src/index.test.tsx"
   },
   "dependencies": {
-    "@session-recall/core": "workspace:*",
+    "@agent-session-exporter/core": "workspace:*",
     "katex": "^0.17.0",
+    "lucide-static": "^0.483.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",

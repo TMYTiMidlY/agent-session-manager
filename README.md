@@ -1,11 +1,13 @@
-# session-recall
+# agent-session-exporter
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D22-339933?logo=nodedotjs&logoColor=white)
 ![pnpm](https://img.shields.io/badge/pnpm-workspace-f69220?logo=pnpm&logoColor=white)
 ![Vitest](https://img.shields.io/badge/tests-Vitest-6E9F18?logo=vitest&logoColor=white)
 
-**Recall old coding-agent sessions.** `session-recall` reads local history from GitHub Copilot CLI, Claude Code, and OpenAI Codex CLI, then lets you search, print, or export a session as a self-contained HTML report.
+**Export coding-agent CLI sessions to Markdown or single-file HTML.** `agent-session-exporter` reads local history written by GitHub Copilot CLI, Claude Code, and OpenAI Codex CLI, then exports a chosen session as a faithful, self-contained report. The CLI binary is named `recall`.
+
+The HTML output replicates Copilot CLI's built-in `/share html` layout (Primer dark theme, sticky header, filter pills, sidebar map, jump-to-prev/next user message, search). The Markdown output replicates Copilot CLI's `/share file` format byte-for-byte (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` fold of long tool output, diff fences, `[!NOTE]` header block).
 
 It is read-only against agent state directories. It does **not** write to `.copilot`, `.claude`, or `.codex`, and it does not try to restore sessions back into the original CLIs.
 
@@ -16,14 +18,36 @@ It is read-only against agent state directories. It does **not** write to `.copi
 | List known sessions | `recall list --agent all` |
 | Search local history | `recall search "keyword" --agent all` |
 | Print one session | `recall show <session-id> --agent claude` |
-| Export HTML | `recall html <session-id> --agent codex -o session.html` |
-| Run backup | `recall backup --dry-run` |
+| Export to Markdown (Copilot `/share file` replica) | `recall md <session-id> -o session.md` |
+| Export to HTML (Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
+| Run backup (restic wrapper) | `recall backup --dry-run` |
 
 Supported agents:
 
 - **Copilot CLI**: reads `~/.copilot/session-state/*/events.jsonl`
 - **Claude Code**: reads `~/.claude/projects/**/*.jsonl`
 - **Codex CLI**: reads `~/.codex/sessions/**/*.jsonl`
+
+## Install (no npm publish yet)
+
+This package is not on npm. Clone and link locally — this is the supported path until a single-binary release lands:
+
+```bash
+git clone https://github.com/TMYTiMidlY/agent-session-exporter.git
+cd agent-session-exporter
+pnpm install
+pnpm build
+pnpm --filter @agent-session-exporter/cli exec npm link    # makes `recall` global
+recall list --agent all
+```
+
+To uninstall:
+
+```bash
+pnpm --filter @agent-session-exporter/cli exec npm unlink -g
+```
+
+Single-binary releases (`bun build --compile` for macOS / Linux / Windows) and `npm i -g github:...` one-liner install are tracked in [Roadmap](#roadmap).
 
 ## Install for development
 
@@ -94,10 +118,21 @@ recall show <session-id> --agent codex --format json
 
 ### `recall html`
 
-Write a self-contained HTML report:
+Write a self-contained HTML report. Replicates Copilot CLI `/share html` (sticky header, filter pills, sidebar map, search, expand/collapse, jump-to-prev/next user message, theme toggle, compact mode, markdown tables, KaTeX math).
 
 ```bash
 recall html <session-id> --agent copilot -o report.html
+recall html <session-id> -s agent-summary.html -o report.html   # pin an HTML summary on top
+```
+
+### `recall md`
+
+Export a session as Markdown that replicates Copilot CLI `/share file` byte-for-byte (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` fold of long tool output, diff fences, `[!NOTE]` header block).
+
+```bash
+recall md <session-id> --agent copilot -o report.md
+recall md <session-id> --no-reasoning -o report.md             # drop reasoning entries
+recall md <session-id> -s summary.md -o report.md              # inject a markdown summary
 ```
 
 ### `recall backup`
@@ -158,16 +193,16 @@ Example unit files live in `systemd/`:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp systemd/session-recall.service.example ~/.config/systemd/user/session-recall.service
-cp systemd/session-recall.timer.example ~/.config/systemd/user/session-recall.timer
+cp systemd/agent-session-exporter.service.example ~/.config/systemd/user/agent-session-exporter.service
+cp systemd/agent-session-exporter.timer.example ~/.config/systemd/user/agent-session-exporter.timer
 ```
 
-Edit `session-recall.service` so paths point at your checkout, then:
+Edit `agent-session-exporter.service` so paths point at your checkout, then:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now session-recall.timer
-systemctl --user list-timers session-recall.timer
+systemctl --user enable --now agent-session-exporter.timer
+systemctl --user list-timers agent-session-exporter.timer
 ```
 
 If the timer should run while you are logged out, enable user lingering with your OS administrator account.
@@ -177,11 +212,56 @@ If the timer should run while you are logged out, enable user lingering with you
 | Path | Purpose |
 |---|---|
 | `packages/core` | Agent discovery, parsers, normalized timeline model, search |
-| `packages/html` | React HTML renderer |
+| `packages/markdown` | Markdown renderer (replicates Copilot `/share file`) |
+| `packages/html` | React-based single-file HTML renderer (replicates Copilot `/share html`) |
 | `packages/cli` | `recall` command |
 | `fixtures` | Redacted parser and CLI fixtures |
 | `tools/copilot` | Copilot export/share HTML research helpers |
 | `backup.sh` | restic wrapper used by `recall backup` |
+
+## Prior art / related projects
+
+This problem space is crowded — at least 14 OSS projects target similar
+ground. Several have meaningful star counts, and at least one is by a
+prominent open-source author. We surveyed them before designing this
+tool. A read-only mirror of each project is kept at
+`1810:/home/timidly/projects/readonly-repos/<name>/` for local reference.
+
+| Repository | Stars | Lang | Form factor | Agents covered | Notes |
+|---|---:|---|---|---|---|
+| [simonw/claude-code-transcripts](https://github.com/simonw/claude-code-transcripts) | 1586 | Python | CLI → paginated static HTML | Claude | By Simon Willison; mobile-friendly multi-page output |
+| [d-kimuson/claude-code-viewer](https://github.com/d-kimuson/claude-code-viewer) | 1233 | TS (web) | Full web client (live + history) | Claude | Not just a viewer; can drive new sessions via Agent SDK |
+| [daaain/claude-code-log](https://github.com/daaain/claude-code-log) | 1121 | Python | CLI → HTML/Markdown + Textual TUI | Claude | `uvx claude-code-log` zero-install; project-hierarchy index page |
+| [specstoryai/getspecstory](https://github.com/specstoryai/getspecstory) | 1260 | Mixed | Commercial product (CLI partly OSS) | Many IDE/CLI | "Intent is the new source code" — capture + index + skill forge |
+| [nateherkai/token-dashboard](https://github.com/nateherkai/token-dashboard) | 605 | Python | Local web dashboard | Claude | Cost / token-usage analytics angle |
+| [vibe-log/vibe-log-cli](https://github.com/vibe-log/vibe-log-cli) | 332 | TS | npm CLI (`vibe-log`) | Claude + Codex | Productivity reports + Claude statusline |
+| [delexw/claude-code-trace](https://github.com/delexw/claude-code-trace) | 327 | TS+Rust (Tauri) + Python | Native GUI + Web + TUI | Claude | Tauri desktop, `cctrace` CLI; rich live-tail UI |
+| [kylesnowschwartz/tail-claude](https://github.com/kylesnowschwartz/tail-claude) | 146 | Go | Bubble Tea TUI | Claude | Single-binary, requires Nerd Font |
+| [wesm/archived-agent-session-viewer](https://github.com/wesm/archived-agent-session-viewer) | 88 | Python | Local web app (FastAPI) | Claude + Codex | By Wes McKinney (pandas/Arrow); **archived** in favour of AgentsView |
+| [shayne-snap/waylog-cli](https://github.com/shayne-snap/waylog-cli) | 84 | Rust | Auto-sync to `.waylog/` markdown files | Claude + Codex + Gemini | Cargo / Homebrew / Scoop distribution |
+| [PixelPaw-Labs/codex-trace](https://github.com/PixelPaw-Labs/codex-trace) | 56 | TS+Rust (Tauri) | Native GUI + Web | Codex | Sibling project to claude-code-trace |
+| [monk1337/clicodelog](https://github.com/monk1337/clicodelog) | 47 | Python (FastAPI) | Local web app | Claude + Codex + Gemini | The closest existing multi-agent local viewer |
+| [HizTam/codex-history-viewer](https://github.com/HizTam/codex-history-viewer) | 19 | TS | VS Code extension | Claude + Codex | Browse + resume from inside VS Code |
+| [dotneet/agent-session-view](https://github.com/dotneet/agent-session-view) | 10 | TS (Bun) | Web + Ink TUI | Claude + Codex | Multiple export formats (text + HTML) |
+
+### Where `agent-session-exporter` is different
+
+1. **GitHub Copilot CLI is a first-class adapter.** None of the projects above currently parse `~/.copilot/session-state/*/events.jsonl`.
+2. **Output replicates Copilot CLI's own `/share file` and `/share html` formats.** That means the same Primer dark theme, the same filter pills, the same emoji-prefixed Markdown headings, the same `<sub>⏱️ Xs</sub>` elapsed timestamps, the same `<details>` fold of long tool output, and the same diff fences — so a user already familiar with the bundled `/share` UX gets pixel- and byte-equivalent offline reports for any of the three agents.
+3. **Single-file HTML is the default deliverable.** ~1 MB, no server, no build, opens by double-click. (Most peers ship a Tauri app, an Express/FastAPI web app, or a TUI; the only static-HTML peers are Simon's `claude-code-transcripts` (Claude-only) and `daaain/claude-code-log` (Claude-only).)
+4. **Library + CLI, not just an app.** `@agent-session-exporter/core`, `/markdown`, `/html` are independently importable for downstream tools that want the parser or renderer without the CLI.
+5. **No live agent SDK coupling.** Read-only, no Anthropic / OpenAI / GitHub API calls for normal operation; no ToS surface area like `claude-code-viewer` has had to navigate.
+
+### Things we learned from the field (and intend to adopt)
+
+These are tracked as GitHub issues with explicit `Inspired by …` references in each:
+
+- **Project-hierarchy index page** that links to every session HTML (à la `claude-code-log`).
+- **Token / cost analytics view** for sessions (à la `token-dashboard`).
+- **Live tail mode** for an open session (à la `claude-code-trace` / `tail-claude`).
+- **Project-grouped sidebar** for `recall list` (à la `agent-session-viewer`, `codex-history-viewer`).
+- **VS Code extension wrapper** as a separate package (à la `codex-history-viewer`).
+- **Static export tarball for Pages hosting** (à la `claude-code-transcripts`).
 
 ## Safety before publishing
 
@@ -196,7 +276,13 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 
 ## Roadmap
 
-- Move the old dredge-up skill into a thin wrapper that calls `recall`.
-- Improve adapter fidelity for every agent format.
-- Add cached search over restic-restored backup snapshots.
-- Add a dashboard over many sessions.
+- **Single-file distribution.** Bundle the CLI with `bun build --compile` and attach native binaries to GitHub Releases; add a `npm i -g github:...` one-liner once workspace bundling is set up.
+- **Cached search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`).
+- **Move the old `dredge-up` skill into a thin wrapper that calls `recall`.**
+- **Improve adapter fidelity for every agent format.**
+- **Project-hierarchy index page** (inspired by `daaain/claude-code-log`).
+- **Token / cost analytics view** (inspired by `nateherkai/token-dashboard`).
+- **Live tail mode** for active sessions (inspired by `delexw/claude-code-trace`, `kylesnowschwartz/tail-claude`).
+- **VS Code extension wrapper** (inspired by `HizTam/codex-history-viewer`).
+- **Static export tarball for GitHub Pages** (inspired by `simonw/claude-code-transcripts`).
+- **Dashboard view across many sessions.**

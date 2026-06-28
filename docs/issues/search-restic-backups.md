@@ -1,6 +1,6 @@
 # Search sessions from restic backup cache
 
-GitHub issue: https://github.com/TMYTiMidlY/session-trace/issues/1
+GitHub issue: https://github.com/TMYTiMidlY/agent-session-exporter/issues (re-filed after rename from session-trace)
 
 ## Summary
 

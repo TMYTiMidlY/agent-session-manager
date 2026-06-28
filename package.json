@@ -1,5 +1,5 @@
 {
-  "name": "session-recall",
+  "name": "agent-session-exporter",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r --if-present test",
-    "recall": "pnpm --filter @session-recall/cli dev"
+    "recall": "pnpm --filter @agent-session-exporter/cli dev"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

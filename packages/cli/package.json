@@ -1,5 +1,5 @@
 {
-  "name": "@session-recall/cli",
+  "name": "@agent-session-exporter/cli",
   "version": "0.1.0",
   "type": "module",
   "bin": {
@@ -11,8 +11,9 @@
     "test": "vitest run src/index.test.ts"
   },
   "dependencies": {
-    "@session-recall/core": "workspace:*",
-    "@session-recall/html": "workspace:*",
+    "@agent-session-exporter/core": "workspace:*",
+    "@agent-session-exporter/html": "workspace:*",
+    "@agent-session-exporter/markdown": "workspace:*",
     "commander": "^14.0.0"
   }
 }

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
-import { AGENTS, discoverSessions, findSession, parseSession, searchSessions, sessionToText, type AgentKind, type AgentRoots } from "@session-recall/core";
-import { renderSessionHtml } from "@session-recall/html";
+import { AGENTS, discoverSessions, findSession, parseSession, searchSessions, sessionToText, type AgentKind, type AgentRoots } from "@agent-session-exporter/core";
+import { renderSessionHtml } from "@agent-session-exporter/html";
+import { renderSessionMarkdown } from "@agent-session-exporter/markdown";
 
 const program = new Command();
 
@@ -70,6 +71,7 @@ program
   .description("Generate a single-file HTML report")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-o, --out <path>", "output file", "session.html")
+  .option("-s, --summary <path>", "inject an HTML fragment at the top of the report")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
@@ -78,8 +80,39 @@ program
     const session = await parseSession(ref);
     const out = resolve(String(opts.out));
     await mkdir(dirname(out), { recursive: true });
-    await writeFile(out, renderSessionHtml(session), "utf8");
+    const summary = await readOptionalFile(opts.summary);
+    await writeFile(out, renderSessionHtml(session, { summary }), "utf8");
     console.log(out);
+  });
+
+program
+  .command("md")
+  .alias("markdown")
+  .argument("<session-id>")
+  .description("Export the session as a Markdown file (replicates Copilot CLI /share file)")
+  .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
+  .option("-o, --out <path>", "output file (default: stdout)")
+  .option("-s, --summary <path>", "inject a Markdown fragment after the header note")
+  .option("--no-reasoning", "drop reasoning entries (default: include)")
+  .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--claude-root <path>", "override Claude projects root")
+  .option("--codex-root <path>", "override Codex sessions root")
+  .action(async (id, opts) => {
+    const ref = await mustFindSession(id, parseAgents(opts.agent), rootsFromOptions(opts));
+    const session = await parseSession(ref);
+    const summary = await readOptionalFile(opts.summary);
+    const markdown = renderSessionMarkdown(session, {
+      includeReasoning: opts.reasoning !== false,
+      summary,
+    });
+    if (opts.out) {
+      const out = resolve(String(opts.out));
+      await mkdir(dirname(out), { recursive: true });
+      await writeFile(out, markdown, "utf8");
+      console.log(out);
+    } else {
+      process.stdout.write(markdown);
+    }
   });
 
 program
@@ -110,6 +143,11 @@ function rootsFromOptions(opts: Record<string, unknown>): AgentRoots {
     claude: typeof opts.claudeRoot === "string" ? opts.claudeRoot : undefined,
     codex: typeof opts.codexRoot === "string" ? opts.codexRoot : undefined,
   };
+}
+
+async function readOptionalFile(path: unknown): Promise<string | undefined> {
+  if (typeof path !== "string" || !path) return undefined;
+  return readFile(resolve(path), "utf8");
 }
 
 function resolveRepoRoot(): string {
