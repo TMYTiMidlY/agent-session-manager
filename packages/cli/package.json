@@ -1,0 +1,18 @@
+{
+  "name": "@session-recall/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "recall": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run src/index.test.ts"
+  },
+  "dependencies": {
+    "@session-recall/core": "workspace:*",
+    "@session-recall/html": "workspace:*",
+    "commander": "^14.0.0"
+  }
+}

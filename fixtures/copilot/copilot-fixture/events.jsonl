@@ -1,0 +1,3 @@
+{"type":"session.start","data":{"sessionId":"copilot-fixture","startTime":"2026-01-01T00:00:00.000Z","context":{"cwd":"/tmp/project","repository":"fixture/repo"}},"timestamp":"2026-01-01T00:00:00.000Z"}
+{"type":"user.message","data":{"content":"Please remember the alpha decision."},"timestamp":"2026-01-01T00:00:01.000Z"}
+{"type":"assistant.message","data":{"content":"The alpha decision is recorded.","toolRequests":[]},"timestamp":"2026-01-01T00:00:02.000Z"}

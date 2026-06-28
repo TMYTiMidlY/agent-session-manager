@@ -1,8 +1,33 @@
-# copilot-backup —— Copilot CLI 会话历史增量备份
+# session-recall —— coding-agent 会话召回
 
-把本机 `~/.copilot`（GitHub Copilot CLI 的全部会话历史）**增量、加密**备份到任意 S3 兼容（或其他 restic backend）后端。目标：任意历史会话都能恢复到「`/share html` 可复刻」的程度。已端到端验证通过。
+`session-recall` 是一个本地只读工具，用来从 coding-agent 的历史记录中**搜索会话、按 session id 取回会话、生成单文件 HTML**。首批支持 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI。
 
-底层：**restic**（CDC 去重 + zstd 压缩 + 端到端 AES-256）。仓库里的脚本和本 README 是**通用的**——所有「打到哪台机、哪个 bucket、走什么端口」都从 `secrets.env` 读取；换机部署只改那一个文件即可。
+日常命令叫 `recall`：
+
+```bash
+pnpm install
+pnpm build
+
+node packages/cli/dist/index.js search "关键词" --agent all
+node packages/cli/dist/index.js show <session-id> --agent copilot --format text
+node packages/cli/dist/index.js html <session-id> --agent claude -o session.html
+```
+
+当前已落地的 MVP：
+
+- `recall list/search/show/html`：三家 agent 的 live 本地历史只读解析。
+- React 单文件 HTML：三家统一时间线模型和统一视觉。
+- `recall backup`：暂时包装旧的 restic `backup.sh`，作为未来“从备份 cache 搜索”的底座。
+
+明确不做：把备份恢复回 `~/.copilot` / `~/.claude` / `~/.codex` 让原 CLI resume。备份只作为 archive source（历史来源）。
+
+---
+
+## 旧 restic 备份说明
+
+下面这部分仍是当前 `backup.sh` 的运维说明；后续会被收敛进 `recall backup` 文档。
+
+把本机 agent 状态目录**增量、加密**备份到任意 S3 兼容（或其他 restic backend）后端。底层：**restic**（CDC 去重 + zstd 压缩 + 端到端 AES-256）。仓库里的脚本是**通用的**——所有「打到哪台机、哪个 bucket、走什么端口」都从 `secrets.env` 读取；换机部署只改那一个文件即可。
 
 ---
 
