@@ -13,6 +13,9 @@ describe("renderSessionHtml", () => {
     const html = renderSessionHtml(session);
     expect(html).toContain("<!doctype html>");
     expect(html).toContain("hello recall");
-    expect(html).toContain("copilot · fixture");
+    expect(html).toContain("id=\"search\"");
+    expect(html).toContain("data-filter=\"user\"");
+    expect(html).toContain("copilot");
+    expect(html).toContain("fixture");
   });
 });
