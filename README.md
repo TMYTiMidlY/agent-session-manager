@@ -118,7 +118,15 @@ recall show <session-id> --agent codex --format json
 
 ### `recall html`
 
-Write a self-contained HTML report. Replicates Copilot CLI `/share html` (sticky header, filter pills, sidebar map, search, expand/collapse, jump-to-prev/next user message, theme toggle, compact mode, markdown tables, KaTeX math).
+Write a self-contained HTML report. Replicates Copilot CLI `/share html` (sticky header, filter pills, sidebar map, search, expand/collapse, jump-to-prev/next user message, theme toggle, compact mode, markdown tables, KaTeX math), plus:
+
+- **Shiki syntax highlighting** for markdown code fences and diff-style tool output, with dual light + dark themes so the page theme toggle re-colours code without a page reload.
+- **24-hour timestamps** (`YYYY-MM-DD HH:MM:SS` for session start; `HH:MM:SS` for entries on the same day, `MM-DD HH:MM:SS` when a session spans multiple days) — the en-US 12-hour default (`PM/AM`) misreads too easily.
+- **Elapsed pill** in the header derived from `startedAt` → last entry.
+- **Agent summary card** pinned above the timeline via `--summary <file.html>` (renders trusted HTML raw; `data-index="summary"` so real entry #1 stays entry #1).
+- **Merged tool cards** with five result states (success / failure / rejected / denied / pending), matching border colours and status icons.
+- **Data-source fallback warning pill** shown in the header when the parser had to read something other than the canonical `events.jsonl`.
+- **Default-open policy mirrors the Copilot bundle**: `user / assistant / error / task_complete` open, everything else folded.
 
 ```bash
 recall html <session-id> --agent copilot -o report.html

@@ -81,7 +81,7 @@ program
     const out = resolve(String(opts.out));
     await mkdir(dirname(out), { recursive: true });
     const summary = await readOptionalFile(opts.summary);
-    await writeFile(out, renderSessionHtml(session, { summary }), "utf8");
+    await writeFile(out, await renderSessionHtml(session, { summary }), "utf8");
     console.log(out);
   });
 

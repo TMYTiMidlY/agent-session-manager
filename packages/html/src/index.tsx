@@ -7,9 +7,93 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
-import type { ParsedSession, TimelineEntry, TimelineRole, ToolDetail, ToolResultKind } from "@agent-session-exporter/core";
+import type { HighlighterCore, LanguageInput, ThemeInput } from "@shikijs/types";
+import type { ParsedSession, TimelineEntry, ToolDetail, ToolResultKind } from "@agent-session-exporter/core";
 
 const require = createRequire(import.meta.url);
+
+/* ─────────────────────────────────────────────── syntax highlighting ── */
+
+/**
+ * Shiki-based syntax highlighting. Runs at SSR time — the emitted HTML is
+ * fully self-contained (no client-side highlighter, no external CSS). Dual
+ * theme (light + dark) so the theme toggle re-colours code without a
+ * re-render. Mirrors dredge-up React's language set.
+ */
+const SHIKI_LANGS: Array<[string, () => Promise<{ default: unknown }>]> = [
+  ["bash", () => import("@shikijs/langs/bash")],
+  ["python", () => import("@shikijs/langs/python")],
+  ["javascript", () => import("@shikijs/langs/javascript")],
+  ["typescript", () => import("@shikijs/langs/typescript")],
+  ["tsx", () => import("@shikijs/langs/tsx")],
+  ["json", () => import("@shikijs/langs/json")],
+  ["diff", () => import("@shikijs/langs/diff")],
+  ["css", () => import("@shikijs/langs/css")],
+  ["html", () => import("@shikijs/langs/html")],
+  ["markdown", () => import("@shikijs/langs/markdown")],
+  ["yaml", () => import("@shikijs/langs/yaml")],
+  ["toml", () => import("@shikijs/langs/toml")],
+  ["rust", () => import("@shikijs/langs/rust")],
+  ["go", () => import("@shikijs/langs/go")],
+];
+
+const LANG_ALIAS: Record<string, string> = {
+  sh: "bash", shell: "bash", zsh: "bash",
+  py: "python",
+  js: "javascript",
+  ts: "typescript",
+  yml: "yaml",
+  rs: "rust",
+  golang: "go",
+};
+
+let _highlighterPromise: Promise<HighlighterCore> | null = null;
+
+async function initHighlighter(): Promise<HighlighterCore> {
+  if (!_highlighterPromise) {
+    _highlighterPromise = (async () => {
+      const shiki = await import("shiki/core");
+      const jsEngine = await import("shiki/engine/javascript");
+      const [langModules, themeModules] = await Promise.all([
+        Promise.all(SHIKI_LANGS.map(([, load]) => load())),
+        Promise.all([
+          import("@shikijs/themes/github-light"),
+          import("@shikijs/themes/github-dark"),
+        ]),
+      ]);
+      return shiki.createHighlighterCore({
+        themes: themeModules.map((m) => m.default as ThemeInput),
+        langs: langModules.map((m) => m.default as LanguageInput),
+        engine: jsEngine.createJavaScriptRegexEngine(),
+      });
+    })();
+  }
+  return _highlighterPromise;
+}
+
+let _highlighter: HighlighterCore | null = null;
+
+function highlight(code: string, lang: string | undefined): string {
+  if (!_highlighter) return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+  const raw = (lang ?? "").toLowerCase();
+  const normalized = LANG_ALIAS[raw] ?? raw;
+  const loaded = _highlighter.getLoadedLanguages();
+  const useLang = normalized && loaded.includes(normalized) ? normalized : "text";
+  return _highlighter.codeToHtml(code, {
+    lang: useLang,
+    themes: { light: "github-light", dark: "github-dark" },
+    defaultColor: false,
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 /* ─────────────────────────────────────────────── public api ───────────── */
 
@@ -20,10 +104,22 @@ export interface RenderHtmlOptions {
    * you trust (typically agent-authored markup converted from Markdown).
    */
   summary?: string;
+  /**
+   * Optional data-source label. When set to anything other than
+   * `"events.jsonl"` (the normal case) a warning pill appears in the
+   * header, matching dredge-up's `⚠ 数据源回退到 db.turns` behaviour.
+   */
+  sourceLabel?: string;
 }
 
-export function renderSessionHtml(session: ParsedSession, options: RenderHtmlOptions = {}): string {
-  const markup = renderToStaticMarkup(<Report session={session} summary={options.summary} />);
+export async function renderSessionHtml(
+  session: ParsedSession,
+  options: RenderHtmlOptions = {},
+): Promise<string> {
+  _highlighter = await initHighlighter();
+  const markup = renderToStaticMarkup(
+    <Report session={session} summary={options.summary} sourceLabel={options.sourceLabel} />,
+  );
   return `<!doctype html>${markup}`;
 }
 
@@ -129,10 +225,12 @@ function Icon({ name, size = 16 }: { name: string; size?: number }) {
 
 /* ─────────────────────────────────────────────── report shell ─────────── */
 
-function Report({ session, summary }: { session: ParsedSession; summary?: string }) {
+function Report({ session, summary, sourceLabel }: { session: ParsedSession; summary?: string; sourceLabel?: string }) {
   const counts = countByFilter(session.entries, summary);
   const visiblePills = PILL_ORDER.filter((key) => counts[key] > 0);
   const title = session.title ?? `${session.agent} session`;
+  const sessionStart = session.startedAt;
+  const showFallbackWarning = sourceLabel && sourceLabel !== "events.jsonl";
 
   return (
     <html lang="en" className="dark">
@@ -153,15 +251,23 @@ function Report({ session, summary }: { session: ParsedSession; summary?: string
             </div>
             <div className="meta">
               {session.cwd && <span>{session.cwd}</span>}
-              {session.startedAt && <span>{formatDate(session.startedAt)}</span>}
+              {sessionStart && <span>{formatStart(sessionStart)}</span>}
+              {sessionStart && (
+                <span>{elapsedStr(sessionStart, session.updatedAt)}</span>
+              )}
               <span>{session.entries.length} entries</span>
+              {showFallbackWarning && (
+                <span className="fallback-warning" title="Data source is not the canonical events.jsonl">
+                  ⚠ 数据源回退到 {sourceLabel}
+                </span>
+              )}
             </div>
           </div>
 
           <div className="controls">
             <label className="search">
               <Icon name="search" />
-              <input id="search" placeholder="Search (/)" autoComplete="off" />
+              <input id="search" placeholder="搜索(按 / 聚焦)" autoComplete="off" />
             </label>
 
             <div className="filters" aria-label="entry filters">
@@ -178,13 +284,13 @@ function Report({ session, summary }: { session: ParsedSession; summary?: string
             </div>
 
             <div className="buttons">
-              <button type="button" id="prev-user" title="Previous user message"><Icon name="chevron-up" /> user</button>
-              <button type="button" id="next-user" title="Next user message"><Icon name="chevron-down" /> user</button>
-              <button type="button" id="collapse-all"><Icon name="fold-vertical" /> 折叠</button>
-              <button type="button" id="expand-all"><Icon name="unfold-vertical" /> 展开</button>
-              <button type="button" id="toggle-sidebar"><Icon name="rows-3" /> 侧栏</button>
-              <button type="button" id="toggle-compact"><Icon name="rows-3" /> 紧凑</button>
-              <button type="button" id="toggle-theme"><Icon name="sun" /> 主题</button>
+              <button type="button" id="prev-user" title="上一条用户消息"><Icon name="chevron-up" /></button>
+              <button type="button" id="next-user" title="下一条用户消息"><Icon name="chevron-down" /></button>
+              <button type="button" id="collapse-all" title="全部折叠"><Icon name="fold-vertical" /></button>
+              <button type="button" id="expand-all" title="全部展开"><Icon name="unfold-vertical" /></button>
+              <button type="button" id="toggle-sidebar" title="切换侧栏" aria-pressed="true"><Icon name="rows-3" /></button>
+              <button type="button" id="toggle-compact" title="紧凑模式" aria-pressed="false"><Icon name="rows-3" /></button>
+              <button type="button" id="toggle-theme" title="切换主题"><Icon name="sun" /></button>
             </div>
           </div>
         </header>
@@ -201,11 +307,20 @@ function Report({ session, summary }: { session: ParsedSession; summary?: string
               )}
               {session.entries.map((entry) => {
                 const key = entryFilterKey(entry);
+                let text: string;
+                if (entry.role === "tool" && entry.tool) {
+                  const name = entry.tool.name ?? "(tool)";
+                  text = entry.tool.intentionSummary
+                    ? `${name} — ${entry.tool.intentionSummary}`
+                    : name;
+                } else {
+                  text = firstLine(entry.title ?? entry.text);
+                }
                 return (
                   <a key={entry.index} href={`#entry-${entry.index}`} data-nav-role={key}>
                     <span>#{entry.index + 1}</span>
                     <strong>{PILL_DEFS[key].label}</strong>
-                    <em>{firstLine(entry.title ?? entry.text)}</em>
+                    <em>{text}</em>
                   </a>
                 );
               })}
@@ -214,7 +329,7 @@ function Report({ session, summary }: { session: ParsedSession; summary?: string
 
           <main>
             {summary && <SummaryCard html={summary} />}
-            {session.entries.map((entry) => <Entry key={entry.index} entry={entry} />)}
+            {session.entries.map((entry) => <Entry key={entry.index} entry={entry} sessionStart={sessionStart} />)}
             <footer>
               Generated by <strong>agent-session-exporter</strong>. This file is self-contained and works offline.
             </footer>
@@ -229,28 +344,40 @@ function Report({ session, summary }: { session: ParsedSession; summary?: string
 
 /* ─────────────────────────────────────────────── entry routing ────────── */
 
-function Entry({ entry }: { entry: TimelineEntry }) {
-  if (entry.role === "tool") return <ToolCard entry={entry} />;
-  if (entry.role === "event") return <EventCard entry={entry} />;
-  if (entry.role === "user") return <SimpleEntry entry={entry} isMarkdown={false} icon="user" />;
-  if (entry.role === "assistant") return <SimpleEntry entry={entry} isMarkdown icon="bot" />;
-  if (entry.role === "reasoning") return <SimpleEntry entry={entry} isMarkdown icon="brain" />;
-  if (entry.role === "system") return <SimpleEntry entry={entry} isMarkdown={false} icon="info" />;
-  return <SimpleEntry entry={entry} isMarkdown={false} icon="info" />;
+function Entry({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  if (entry.role === "tool") return <ToolCard entry={entry} sessionStart={sessionStart} />;
+  if (entry.role === "event") return <EventCard entry={entry} sessionStart={sessionStart} />;
+  if (entry.role === "user") return <SimpleEntry entry={entry} isMarkdown={false} icon="user" sessionStart={sessionStart} />;
+  if (entry.role === "assistant") return <SimpleEntry entry={entry} isMarkdown icon="bot" sessionStart={sessionStart} />;
+  if (entry.role === "reasoning") return <SimpleEntry entry={entry} isMarkdown icon="brain" sessionStart={sessionStart} />;
+  if (entry.role === "system") return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
+  return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
 }
 
-function SimpleEntry({ entry, isMarkdown, icon: iconName }: { entry: TimelineEntry; isMarkdown: boolean; icon: string }) {
+/**
+ * Default-open policy mirrors the Copilot bundle's own /share html:
+ * `user / assistant / error / task_complete` are expanded by default;
+ * everything else (`reasoning / info / warning / tool / notification /
+ * handoff / compaction / group / system`) is folded. Users can flip any
+ * card individually, or use the Collapse-all / Expand-all buttons.
+ */
+function defaultOpen(entry: TimelineEntry): boolean {
+  if (entry.role === "user" || entry.role === "assistant") return true;
+  if (entry.role === "event" && (entry.kind === "error" || entry.kind === "task_complete")) return true;
+  return false;
+}
+
+function SimpleEntry({ entry, isMarkdown, icon: iconName, sessionStart }: { entry: TimelineEntry; isMarkdown: boolean; icon: string; sessionStart?: string }) {
   const key = entryFilterKey(entry);
-  const open = entry.role === "user" || entry.role === "assistant";
   return (
-    <details {...entryAttrs(entry, key)} open={open}>
+    <details {...entryAttrs(entry, key)} open={defaultOpen(entry)}>
       <summary>
         <span className="chevron">›</span>
         <span className="badge">#{entry.index + 1}</span>
         <Icon name={iconName} />
         <span className="role">{PILL_DEFS[key].label}</span>
         <span className="snippet">{firstLine(entry.text)}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp)}</time>}
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
       </summary>
       <div className="body">
         {isMarkdown ? <Markdown text={entry.text} /> : <PreBlock text={entry.text} />}
@@ -259,7 +386,7 @@ function SimpleEntry({ entry, isMarkdown, icon: iconName }: { entry: TimelineEnt
   );
 }
 
-function ToolCard({ entry }: { entry: TimelineEntry }) {
+function ToolCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   const tool = entry.tool ?? {};
   const result = tool.result;
   const resultType = (result?.type ?? "pending") as ToolResultKind;
@@ -274,7 +401,7 @@ function ToolCard({ entry }: { entry: TimelineEntry }) {
         <code className="tool-name">{tool.name ?? "(unnamed)"}</code>
         {args && <span className="tool-args">{args}</span>}
         {tool.intentionSummary && <span className="snippet">{tool.intentionSummary}</span>}
-        {entry.timestamp && <time>{formatTime(entry.timestamp)}</time>}
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
       </summary>
       <div className="body">
         <ToolArgsBlock name={tool.name} args={tool.arguments} hadInline={Boolean(args)} />
@@ -284,7 +411,7 @@ function ToolCard({ entry }: { entry: TimelineEntry }) {
   );
 }
 
-function ToolArgsBlock({ name, args, hadInline }: { name: string | undefined; args: unknown; hadInline: boolean }) {
+function ToolArgsBlock({ name: _name, args, hadInline }: { name: string | undefined; args: unknown; hadInline: boolean }) {
   if (hadInline) return null;
   if (args == null) return null;
   let body: string;
@@ -293,7 +420,7 @@ function ToolArgsBlock({ name, args, hadInline }: { name: string | undefined; ar
   return (
     <details className="args-block" open={false}>
       <summary>Arguments</summary>
-      <pre className="plain"><code data-lang="json">{body}</code></pre>
+      <div dangerouslySetInnerHTML={{ __html: highlight(body, "json") }} />
     </details>
   );
 }
@@ -306,22 +433,27 @@ function ToolResult({ tool }: { tool: ToolDetail }) {
   const log = result.log ?? "";
   if (!log) return null;
   if (result.markdown) return <Markdown text={log} />;
-  const lang = isDiff(log) ? "diff" : undefined;
-  return <pre className="plain"><code data-lang={lang}>{log}</code></pre>;
+  // Only run Shiki on diff-looking output — piping a huge `find` / `ls`
+  // dump through the highlighter wraps every line in <span> pairs, ~2x
+  // the raw size for no visual gain.
+  if (isDiff(log)) {
+    return <div dangerouslySetInnerHTML={{ __html: highlight(log, "diff") }} />;
+  }
+  return <pre className="plain">{log}</pre>;
 }
 
-function EventCard({ entry }: { entry: TimelineEntry }) {
+function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   const kind = entry.kind;
-  if (kind === "handoff") return <HandoffCard entry={entry} />;
-  if (kind === "compaction") return <SimpleEntry entry={entry} isMarkdown={false} icon="circle-dashed" />;
-  if (kind === "task_complete") return <SimpleEntry entry={entry} isMarkdown icon="check-circle-2" />;
-  if (kind === "notification") return <NotificationCard entry={entry} />;
-  if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="alert-triangle" />;
-  if (kind === "error") return <SimpleEntry entry={entry} isMarkdown={false} icon="x" />;
-  return <SimpleEntry entry={entry} isMarkdown={false} icon="info" />;
+  if (kind === "handoff") return <HandoffCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "compaction") return <SimpleEntry entry={entry} isMarkdown={false} icon="circle-dashed" sessionStart={sessionStart} />;
+  if (kind === "task_complete") return <SimpleEntry entry={entry} isMarkdown icon="check-circle-2" sessionStart={sessionStart} />;
+  if (kind === "notification") return <NotificationCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="alert-triangle" sessionStart={sessionStart} />;
+  if (kind === "error") return <SimpleEntry entry={entry} isMarkdown={false} icon="x" sessionStart={sessionStart} />;
+  return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
 }
 
-function HandoffCard({ entry }: { entry: TimelineEntry }) {
+function HandoffCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   const data = entry.data ?? {};
   const repo = (data.repository ?? {}) as { owner?: string; name?: string; branch?: string | null };
   const repoLabel = repo.owner && repo.name
@@ -335,7 +467,7 @@ function HandoffCard({ entry }: { entry: TimelineEntry }) {
         <Icon name="shuffle" />
         <span className="role">交接</span>
         <span className="snippet">{repoLabel}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp)}</time>}
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
       </summary>
       <div className="body">
         <p><strong>Repository:</strong> {repoLabel}</p>
@@ -345,7 +477,7 @@ function HandoffCard({ entry }: { entry: TimelineEntry }) {
   );
 }
 
-function NotificationCard({ entry }: { entry: TimelineEntry }) {
+function NotificationCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   return (
     <details {...entryAttrs(entry, "notification")} open={false}>
       <summary>
@@ -354,7 +486,7 @@ function NotificationCard({ entry }: { entry: TimelineEntry }) {
         <Icon name="bell" />
         <span className="role">通知</span>
         <span className="snippet">{firstLine(entry.text)}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp)}</time>}
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
       </summary>
       <div className="body">
         <PreBlock text={entry.text} />
@@ -452,7 +584,28 @@ function htmlToSearchText(html: string): string {
 function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          pre: ({ children }) => <>{children}</>,
+          code({ className, children, ...props }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const code = String(children).replace(/\n$/u, "");
+            if (match) {
+              const rawLang = match[1]!.toLowerCase();
+              const lang = LANG_ALIAS[rawLang] ?? rawLang;
+              const isSupported = SHIKI_LANGS.some(([id]) => id === lang);
+              if (isSupported) {
+                return <div dangerouslySetInnerHTML={{ __html: highlight(code, lang) }} />;
+              }
+              // fall through to plain <pre> — no bloat for unknown languages
+              return <pre className="plain"><code>{code}</code></pre>;
+            }
+            return <code className={className} {...props}>{children}</code>;
+          },
+        }}
+      >
         {text}
       </ReactMarkdown>
     </div>
@@ -475,15 +628,57 @@ function firstLine(text: string): string {
   return line.length > 100 ? `${line.slice(0, 100)}…` : line;
 }
 
-function formatDate(timestamp: string): string {
-  const d = new Date(timestamp);
-  return Number.isNaN(d.getTime()) ? timestamp : d.toLocaleString();
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
-function formatTime(timestamp: string): string {
+/**
+ * Header session-start format: 24-hour `YYYY-MM-DD HH:MM:SS` in local time.
+ * We deliberately avoid `toLocaleString()` (default en-US, 12h AM/PM):
+ * `"11:04:21 PM"` reads too easily as 11:04 morning when it means 23:04.
+ */
+function formatStart(timestamp: string): string {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return timestamp;
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `
+    + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+/**
+ * Per-entry timestamp: `HH:MM:SS` when on the same local date as the
+ * session start; `MM-DD HH:MM:SS` when a session spans multiple days. If
+ * `sessionStart` is missing (no `session.start` event), always fall back
+ * to the compact same-day form.
+ */
+function formatTime(timestamp: string, sessionStart?: string): string {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return timestamp;
+  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+  if (sessionStart) {
+    const start = new Date(sessionStart);
+    if (!Number.isNaN(start.getTime())
+      && d.getFullYear() === start.getFullYear()
+      && d.getMonth() === start.getMonth()
+      && d.getDate() === start.getDate()
+    ) {
+      return time;
+    }
+  }
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${time}`;
+}
+
+/**
+ * Elapsed pill in the header: `Ys` if under a minute, else `Xm Ys`.
+ * `end` defaults to `now` — for a live-rendered report this shows time
+ * since session start; for `updatedAt` we take the timestamp of the
+ * last entry, so the pill reflects the session's actual span.
+ */
+function elapsedStr(start: string, end?: string): string {
+  const s = new Date(start).getTime();
+  const e = end ? new Date(end).getTime() : Date.now();
+  const secs = Math.max(0, Math.floor((e - s) / 1000));
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }
 
 function katexCss(): string {
@@ -542,17 +737,28 @@ const clientScript = String.raw`
   $('expand-all')?.addEventListener('click', () => setAll(true));
   $('prev-user')?.addEventListener('click', () => jumpUser(-1));
   $('next-user')?.addEventListener('click', () => jumpUser(1));
-  $('toggle-sidebar')?.addEventListener('click', () => document.body.classList.toggle('no-sidebar'));
+  $('toggle-sidebar')?.addEventListener('click', () => {
+    document.body.classList.toggle('no-sidebar');
+    const el = $('toggle-sidebar');
+    if (el) el.setAttribute('aria-pressed', String(!document.body.classList.contains('no-sidebar')));
+  });
   $('toggle-compact')?.addEventListener('click', () => {
-    document.body.classList.toggle('compact');
-    localStorage.setItem('agent-session-exporter-compact', document.body.classList.contains('compact') ? '1' : '0');
+    const nextCompact = !document.body.classList.contains('compact');
+    document.body.classList.toggle('compact', nextCompact);
+    const el = $('toggle-compact');
+    if (el) el.setAttribute('aria-pressed', String(nextCompact));
+    localStorage.setItem('agent-session-exporter-compact', nextCompact ? '1' : '0');
   });
   $('toggle-theme')?.addEventListener('click', () => {
-    document.documentElement.classList.toggle('dark');
-    document.documentElement.classList.toggle('light');
-    localStorage.setItem('agent-session-exporter-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+    const nextDark = !document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', nextDark);
+    document.documentElement.classList.toggle('light', !nextDark);
+    localStorage.setItem('agent-session-exporter-theme', nextDark ? 'dark' : 'light');
   });
-  if (localStorage.getItem('agent-session-exporter-compact') === '1') document.body.classList.add('compact');
+  if (localStorage.getItem('agent-session-exporter-compact') === '1') {
+    document.body.classList.add('compact');
+    $('toggle-compact')?.setAttribute('aria-pressed', 'true');
+  }
   const savedTheme = localStorage.getItem('agent-session-exporter-theme');
   if (savedTheme === 'light') { document.documentElement.classList.remove('dark'); document.documentElement.classList.add('light'); }
   applyFilters();
@@ -591,6 +797,7 @@ code { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 button { border:1px solid var(--border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 10px; cursor:pointer; display:inline-flex; align-items:center; gap:5px; font:inherit; }
 button:hover { background:var(--panel2); }
 .filter[aria-pressed="false"] { opacity:.45; }
+.buttons button[aria-pressed="true"] { border-color:color-mix(in srgb, var(--blue) 55%, var(--border)); color:var(--blue); }
 .filter small { color:var(--muted); }
 .filter.accent-blue { color:var(--blue); } .filter.accent-green { color:var(--green); }
 .filter.accent-violet { color:var(--violet); } .filter.accent-amber { color:var(--amber); }
@@ -646,7 +853,14 @@ main { min-width:0; }
 time { color:var(--muted); font-size:12px; }
 .body { border-top:1px solid var(--border); padding:13px; }
 .plain, .markdown pre { margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--code); padding:12px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* Shiki-highlighted blocks: keep the border + radius our other pres have, and swap fg/bg with the CSS variables the theme toggle drives. */
+.shiki { margin:0; border:1px solid var(--border); border-radius:10px; padding:12px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:auto; }
+html:not(.dark) .shiki { background-color: var(--shiki-light-bg, #ffffff); color: var(--shiki-light, inherit); }
+html.dark .shiki { background-color: var(--shiki-dark-bg, #0d1117); color: var(--shiki-dark, inherit); }
+html:not(.dark) .shiki span { color: var(--shiki-light, inherit); }
+html.dark .shiki span { color: var(--shiki-dark, inherit); }
 .muted { color:var(--muted); font-style:italic; }
+.fallback-warning { color:var(--amber); font-weight:600; }
 .args-block { margin:0 0 10px; }
 .args-block > summary { cursor:pointer; color:var(--muted); font-size:13px; padding:4px 0; }
 .markdown > *:first-child { margin-top:0; } .markdown > *:last-child { margin-bottom:0; }

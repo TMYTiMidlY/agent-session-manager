@@ -12,6 +12,10 @@
   },
   "dependencies": {
     "@agent-session-exporter/core": "workspace:*",
+    "@shikijs/engine-javascript": "^4.3.0",
+    "@shikijs/langs": "^4.3.0",
+    "@shikijs/themes": "^4.3.0",
+    "@shikijs/types": "^4.3.0",
     "katex": "^0.17.0",
     "lucide-static": "^0.483.0",
     "react": "^19.2.0",
@@ -19,6 +23,7 @@
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
-    "remark-math": "^6.0.0"
+    "remark-math": "^6.0.0",
+    "shiki": "^4.3.0"
   }
 }
