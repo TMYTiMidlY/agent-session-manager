@@ -34,6 +34,9 @@ export function renderSessionMarkdown(session: ParsedSession, opts: RenderMarkdo
   const agentTitle = agentDisplay(session.agent);
 
   const visible = session.entries.filter((entry) => includeReasoning || entry.role !== "reasoning");
+  const sourceNote = opts.sourceLabel && opts.sourceLabel !== "events.jsonl"
+    ? `\n> [!WARNING]\n> Data source fallback: **${escapeMd(opts.sourceLabel)}**; this export may be lossy.\n`
+    : "";
 
   const header =
     `# ${agentTitle}\n\n` +
@@ -44,6 +47,7 @@ export function renderSessionMarkdown(session: ParsedSession, opts: RenderMarkdo
     `> - **Duration:** ${duration}  \n` +
     `> - **Exported:** ${exportedAt.toLocaleString()}  \n` +
     (session.cwd ? `> - **Cwd:** \`${session.cwd}\`  \n` : "") +
+    sourceNote +
     `\n---\n\n`;
 
   const summaryBlock = opts.summary && opts.summary.trim()
@@ -85,8 +89,14 @@ function renderEntry(entry: TimelineEntry): string {
     if (entry.kind === "info") return heading("ℹ️ Info", entry.text);
     if (entry.kind === "notification") {
       let out = heading("ℹ️ Notification", entry.text);
-      if (entry.detail) {
-        out += `\n<details>\n<summary>Detail</summary>\n\n${entry.detail}\n\n</details>\n`;
+      const kind = entry.data?.kind;
+      const kindType = kind && typeof kind === "object" && !Array.isArray(kind)
+        && typeof (kind as Record<string, unknown>).type === "string"
+        ? (kind as Record<string, unknown>).type as string
+        : undefined;
+      const detail = entry.detail || kindType;
+      if (detail) {
+        out += `\n<details>\n<summary>Detail</summary>\n\n${escapeMd(detail)}\n\n</details>\n`;
       }
       return out;
     }
@@ -99,8 +109,27 @@ function renderEntry(entry: TimelineEntry): string {
       const summary = typeof data.summary === "string" && data.summary ? `\n**Summary:** ${data.summary}` : "";
       return `### 🔄 Session Handoff\n\n**Repository:** ${repoLine}${summary}\n`;
     }
-    if (entry.kind === "compaction") return `### ◌ Conversation Compacted\n`;
-    if (entry.kind === "task_complete") return `### ✓ Task Complete\n\n${entry.text}\n`;
+    if (entry.kind === "compaction") {
+      const data = entry.data ?? {};
+      const stats: string[] = [];
+      if (typeof data.preTokens === "number" && Number.isFinite(data.preTokens)) {
+        stats.push(`${data.preTokens} tokens`);
+      }
+      if (typeof data.preMessages === "number" && Number.isFinite(data.preMessages)) {
+        stats.push(`${data.preMessages} messages`);
+      }
+      if (typeof data.durationMs === "number" && Number.isFinite(data.durationMs)) {
+        stats.push(formatMilliseconds(data.durationMs));
+      }
+      if (typeof data.model === "string" && data.model) stats.push(data.model);
+      const label = data.success === false ? "✗ Compaction Failed" : "◌ Conversation Compacted";
+      const statLine = stats.length > 0 ? `\n\n<sub>${stats.map(escapeMd).join(" · ")}</sub>` : "";
+      return `### ${label}${statLine}\n\n${fence(entry.text)}\n`;
+    }
+    if (entry.kind === "task_complete") {
+      const label = entry.data?.isError === true ? "✗ Task Complete (failed)" : "✓ Task Complete";
+      return `### ${label}\n\n${entry.text}\n`;
+    }
     if (entry.kind === "subagent") {
       const data = entry.data ?? {};
       const name = entry.title ?? "subagent";
@@ -113,9 +142,14 @@ function renderEntry(entry: TimelineEntry): string {
       return `### 🤖 Subagent: ${escapeMd(name)}${desc}${meta}${err}\n`;
     }
     if (entry.kind === "skill") {
-      const name = entry.title ?? "skill";
+      const data = entry.data ?? {};
+      const name = entry.title ?? (typeof data.name === "string" && data.name ? data.name : "skill");
+      const metadata: string[] = [];
+      if (typeof data.source === "string" && data.source) metadata.push(`**Source:** ${escapeMd(data.source)}`);
+      if (typeof data.trigger === "string" && data.trigger) metadata.push(`**Trigger:** ${escapeMd(data.trigger)}`);
+      const meta = metadata.length > 0 ? `\n\n${metadata.join("  \n")}` : "";
       const desc = entry.text ? `\n\n${escapeMd(entry.text)}` : "";
-      return `### ✨ Skill: ${escapeMd(name)}${desc}\n`;
+      return `### ✨ Skill: ${escapeMd(name)}${meta}${desc}\n`;
     }
     if (entry.kind === "plan") return heading("📋 Plan", entry.text);
   }
@@ -282,4 +316,9 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function formatMilliseconds(milliseconds: number): string {
+  const seconds = (milliseconds / 1000).toFixed(3).replace(/\.?0+$/u, "");
+  return `${seconds}s`;
 }
