@@ -134,6 +134,7 @@ Write a self-contained HTML report. Replicates Copilot CLI `/share html` (sticky
 - **Elapsed pill** in the header derived from `startedAt` → last entry.
 - **Agent summary card** pinned above the timeline via `--summary <file.html>` (renders trusted HTML raw; `data-index="summary"` so real entry #1 stays entry #1).
 - **Merged tool cards** with five result states (success / failure / rejected / denied / pending), matching border colours and status icons.
+- **Subagent / skill / plan entries** parsed from `events.jsonl` and rendered as their own cards + filter pills — the subagent card shows agent name, model, token count, tool-call count, and duration. These match the dredge-up skill and go beyond Copilot's own `/share html` (whose pills stop at compaction / task_complete).
 - **Data-source fallback warning pill** shown in the header when the parser had to read something other than the canonical `events.jsonl`.
 - **Default-open policy mirrors the Copilot bundle**: `user / assistant / error / task_complete` open, everything else folded.
 
@@ -321,7 +322,7 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 
 - **Single-file distribution.** Bundle the CLI with `bun build --compile` and attach native binaries to GitHub Releases; add a `npm i -g github:...` one-liner once workspace bundling is set up.
 - **Persistent index/cache search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`). Ad-hoc search over a restored cache directory already works via `recall search --file <dir>`; the remaining work is the `recall backup cache` restore helper plus a durable SQLite/FTS index.
-- **Move the old `dredge-up` skill into a thin wrapper that calls `recall`.**
+- **Move the old `dredge-up` skill into a thin wrapper that calls `recall`.** `recall` now matches the skill's Copilot entry-type coverage (subagent / skill / plan, plus the compaction / task_complete / warning / error types the adapter used to drop) and both of its outputs (`md` + single-file `html`), so this wrapper is unblocked.
 - **Improve adapter fidelity for every agent format.**
 - **Project-hierarchy index page** (inspired by `daaain/claude-code-log`).
 - **Token / cost analytics view** (inspired by `nateherkai/token-dashboard`).
