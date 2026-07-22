@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { Command } from "commander";
-import { AGENTS, discoverPath, discoverSessions, findSession, findSessionAmong, parseSession, searchRefs, sessionToText, type AgentKind, type AgentRoots, type SessionRef } from "@agent-session-exporter/core";
+import { parseSession, searchRefs, sessionToText } from "@agent-session-exporter/core";
 import { renderSessionHtml } from "@agent-session-exporter/html";
 import { renderSessionMarkdown } from "@agent-session-exporter/markdown";
 import { parseSummaryFormat, sourceLabelForSession, summaryMismatchWarning } from "./render-options.js";
+import { resolveOne, resolveRefs } from "./options/resolve.js";
+import { readOptionalFile } from "./util/io.js";
+import { resolveRepoRoot, run } from "./util/proc.js";
 
 const program = new Command();
 
@@ -157,80 +157,6 @@ program
     const args = opts.dryRun ? ["--dry-run"] : [];
     await run(script, args);
   });
-
-function parseAgents(value: string): AgentKind[] {
-  if (value === "all") return AGENTS;
-  if (value === "copilot" || value === "claude" || value === "codex") return [value];
-  throw new Error(`unknown agent: ${value}`);
-}
-
-function filePathFromOptions(opts: Record<string, unknown>): string | undefined {
-  if (typeof opts.file === "string" && opts.file) return opts.file;
-  if (typeof opts.events === "string" && opts.events) return opts.events;
-  return undefined;
-}
-
-function agentOverrideFromOptions(opts: Record<string, unknown>): AgentKind | undefined {
-  return typeof opts.agent === "string" && opts.agent !== "all" ? parseAgents(opts.agent)[0] : undefined;
-}
-
-/** Resolve the working set of sessions from --file/--events or the live agent homes. */
-async function resolveRefs(opts: Record<string, unknown>): Promise<SessionRef[]> {
-  const file = filePathFromOptions(opts);
-  if (file) return discoverPath(file, agentOverrideFromOptions(opts));
-  return discoverSessions(parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
-}
-
-/** Resolve exactly one session for show/html/md. */
-async function resolveOne(id: string | undefined, opts: Record<string, unknown>): Promise<SessionRef> {
-  const file = filePathFromOptions(opts);
-  if (file) {
-    const refs = await discoverPath(file, agentOverrideFromOptions(opts));
-    if (refs.length === 0) throw new Error(`no sessions found in --file path: ${file}`);
-    if (!id) {
-      if (refs.length === 1) return refs[0];
-      throw new Error(`--file matched ${refs.length} sessions; pass a <session-id> to pick one ('recall list --file ${file}')`);
-    }
-    const ref = findSessionAmong(refs, id);
-    if (!ref) throw new Error(`session not found in --file path: ${id}`);
-    return ref;
-  }
-  if (!id) throw new Error("session id required (or pass --file <path>)");
-  const ref = await findSession(id, parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
-  if (!ref) throw new Error(`session not found: ${id}`);
-  return ref;
-}
-
-function rootsFromOptions(opts: Record<string, unknown>): AgentRoots {
-  return {
-    copilot: typeof opts.copilotRoot === "string" ? opts.copilotRoot : undefined,
-    copilotDb: typeof opts.copilotDb === "string" ? opts.copilotDb : undefined,
-    claude: typeof opts.claudeRoot === "string" ? opts.claudeRoot : undefined,
-    codex: typeof opts.codexRoot === "string" ? opts.codexRoot : undefined,
-  };
-}
-
-async function readOptionalFile(path: unknown): Promise<string | undefined> {
-  if (typeof path !== "string" || !path) return undefined;
-  return readFile(resolve(path), "utf8");
-}
-
-function resolveRepoRoot(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 8; i += 1) {
-    if (existsSync(resolve(dir, "backup.sh"))) return dir;
-    dir = resolve(dir, "..");
-  }
-  return process.cwd();
-}
-
-function run(command: string, args: string[]): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
-    child.on("exit", (code) => code === 0 ? resolvePromise() : reject(new Error(`${command} exited ${code}`)));
-    child.on("error", reject);
-  });
-}
 
 program.parseAsync().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : String(error));
