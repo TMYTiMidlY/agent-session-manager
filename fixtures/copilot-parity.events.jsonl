@@ -1,0 +1,22 @@
+{"type":"session.start","data":{"sessionId":"copilot-parity","startTime":"2026-02-01T00:00:00.000Z","context":{"cwd":"/tmp/parity","repository":"fixture/parity"}},"timestamp":"2026-02-01T00:00:00.000Z"}
+{"type":"user.message","data":{"content":"Investigate the delta bug."},"timestamp":"2026-02-01T00:00:01.000Z"}
+{"type":"assistant.message","data":{"reasoningText":"Let me think about the parser.","content":"I'll look at the parser.","model":"gpt","toolRequests":[]},"timestamp":"2026-02-01T00:00:02.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"t1","toolName":"bash","arguments":{"command":"grep -n delta parser.ts"},"intentionSummary":"search for delta"},"timestamp":"2026-02-01T00:00:03.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"t1","success":true,"result":{"content":"parser.ts:42: delta","detailedContent":"parser.ts:42: delta"}},"timestamp":"2026-02-01T00:00:04.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"t2","toolName":"bash","arguments":{"command":"false"}},"timestamp":"2026-02-01T00:00:05.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"t2","success":false,"result":{"content":"exit 1"}},"timestamp":"2026-02-01T00:00:06.000Z"}
+{"type":"skill.invoked","data":{"name":"dredge-up","path":"/skills/dredge-up","source":"project","description":"session recap","trigger":"user","model":"gpt"},"timestamp":"2026-02-01T00:00:07.000Z"}
+{"type":"subagent.started","data":{"toolCallId":"sa1","agentName":"explore","agentDisplayName":"Explore","agentDescription":"scout the codebase","model":"claude"},"timestamp":"2026-02-01T00:00:08.000Z"}
+{"type":"subagent.completed","data":{"toolCallId":"sa1","agentName":"explore","agentDisplayName":"Explore","model":"claude"},"timestamp":"2026-02-01T00:00:12.000Z"}
+{"type":"subagent.started","data":{"toolCallId":"sa2","agentName":"task","agentDisplayName":"Task","agentDescription":"run the build","model":"claude"},"timestamp":"2026-02-01T00:00:13.000Z"}
+{"type":"subagent.failed","data":{"toolCallId":"sa2","agentName":"task","agentDisplayName":"Task","model":"claude","error":"build failed"},"timestamp":"2026-02-01T00:00:15.000Z"}
+{"type":"session.plan_changed","data":{"operation":"updated"},"timestamp":"2026-02-01T00:00:16.000Z"}
+{"type":"session.info","data":{"infoType":"model","message":"Model changed from gpt to claude"},"timestamp":"2026-02-01T00:00:17.000Z"}
+{"type":"session.warning","data":{"warningType":"context","message":"context is getting large"},"timestamp":"2026-02-01T00:00:18.000Z"}
+{"type":"system.notification","data":{"content":"file changed on disk","kind":{"type":"workspace_file_changed","triggerFile":"parser.ts","triggerTool":"edit"}},"timestamp":"2026-02-01T00:00:19.000Z"}
+{"type":"abort","data":{"reason":"user_initiated"},"timestamp":"2026-02-01T00:00:20.000Z"}
+{"type":"session.compaction_start","data":{"systemTokens":5000,"conversationTokens":115000,"toolDefinitionsTokens":8000},"timestamp":"2026-02-01T00:00:21.000Z"}
+{"type":"session.compaction_complete","data":{"success":true,"preCompactionTokens":120000,"preCompactionMessagesLength":40,"summaryContent":"Recap: delta bug is in parser.","checkpointNumber":3,"compactionTokensUsed":{"inputTokens":1000,"outputTokens":500,"duration":4000,"model":"claude"}},"timestamp":"2026-02-01T00:00:25.000Z"}
+{"type":"session.error","data":{"errorType":"network","message":"transient network error","stack":"Error: transient network error\n  at fetch"},"timestamp":"2026-02-01T00:00:26.000Z"}
+{"type":"assistant.message","data":{"content":"The delta bug is fixed.","model":"claude"},"timestamp":"2026-02-01T00:00:27.000Z"}
+{"type":"session.task_complete","data":{"summary":"Delta bug resolved.","success":true},"timestamp":"2026-02-01T00:00:28.000Z"}

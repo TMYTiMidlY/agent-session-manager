@@ -119,12 +119,12 @@ describe("renderSessionMarkdown", () => {
   it("renders subagent / skill / plan entries (dredge-up parity)", () => {
     const out = renderSessionMarkdown(session([
       { index: 0, role: "event", kind: "subagent", title: "Explore", text: "scout the repo",
-        data: { model: "claude", totalTokens: 1234, totalToolCalls: 9, durationMs: 4200 } },
-      { index: 1, role: "event", kind: "skill", title: "dredge-up", text: "session recap", data: { source: "project" } },
+        data: { model: "claude", failed: false } },
+      { index: 1, role: "event", kind: "skill", title: "dredge-up", text: "session recap", data: { source: "project", trigger: "user" } },
       { index: 2, role: "event", kind: "plan", text: "Plan updated", data: { operation: "updated" } },
     ]), { exportedAt: fixedDate });
     expect(out).toContain("### 🤖 Subagent: Explore");
-    expect(out).toContain("claude · 1234 tokens · 9 tool calls · 4s");
+    expect(out).toContain("claude");
     expect(out).toContain("### ✨ Skill: dredge-up");
     expect(out).toContain("### 📋 Plan");
   });

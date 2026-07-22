@@ -14,6 +14,23 @@ export interface SessionRef {
   updatedAt?: string;
   cwd?: string;
   title?: string;
+  /** Repository slug (owner/name), when the agent records one. */
+  repository?: string;
+  /** Git branch, when recorded. */
+  branch?: string;
+  /** Where this parsed session was read from, and whether that source is lossy. */
+  source?: SessionSource;
+}
+
+/**
+ * Provenance for a parsed session. `events` is the canonical append-only event
+ * log; `db-turns` is the lossy fallback reconstructed from the session-store.db
+ * `turns` table when a session's events.jsonl is absent (e.g. pruned/old).
+ */
+export interface SessionSource {
+  kind: "events" | "db-turns";
+  path: string;
+  lossy: boolean;
 }
 
 export type TimelineRole = "user" | "assistant" | "tool" | "reasoning" | "system" | "event";

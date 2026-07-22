@@ -196,9 +196,15 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       // A compaction trims the in-context window; events.jsonl is append-only
       // so every pre-compaction turn still survives above this marker. The
       // entry carries `summaryContent` — the recap seeded into the fresh window.
-      let durationSec: number | undefined;
-      if (timestamp && pendingCompactionStart) {
-        durationSec = Math.round((Date.parse(timestamp) - Date.parse(pendingCompactionStart)) / 1000);
+      // Real field names (grounded against live events.jsonl): the complete
+      // event has preCompactionTokens + preCompactionMessagesLength (there is
+      // NO postCompactionTokens / messagesRemoved / tokensRemoved), and the
+      // authoritative duration is compactionTokensUsed.duration (ms). We fall
+      // back to the start→complete timestamp delta only if that's absent.
+      const usage = (data.compactionTokensUsed ?? {}) as Record<string, unknown>;
+      let durationMs = typeof usage.duration === "number" ? usage.duration : undefined;
+      if (durationMs === undefined && timestamp && pendingCompactionStart) {
+        durationMs = Date.parse(timestamp) - Date.parse(pendingCompactionStart);
       }
       push({
         role: "event",
@@ -209,10 +215,10 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
         data: {
           success: data.success !== false,
           preTokens: data.preCompactionTokens,
-          postTokens: data.postCompactionTokens,
-          messagesRemoved: data.messagesRemoved,
-          tokensRemoved: data.tokensRemoved,
-          durationSec,
+          preMessages: data.preCompactionMessagesLength,
+          checkpointNumber: data.checkpointNumber,
+          model: typeof usage.model === "string" ? usage.model : undefined,
+          durationMs,
         },
       });
       pendingCompactionStart = undefined;
@@ -254,16 +260,18 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     }
 
     if (type === "subagent.completed" || type === "subagent.failed") {
+      // Real subagent.completed carries only toolCallId/agentName/agentDisplayName/model
+      // — NO totalTokens/totalToolCalls/durationMs. subagent.failed adds `error`.
+      // We only record what actually exists: the failed flag + any error text.
       const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
       const target = callId ? pendingSubagents.get(callId) : undefined;
       if (callId) pendingSubagents.delete(callId);
       if (target) {
+        const failed = type === "subagent.failed" || data.success === false;
         target.data = {
           ...target.data,
-          durationMs: data.durationMs,
-          totalTokens: data.totalTokens,
-          totalToolCalls: data.totalToolCalls,
-          failed: type === "subagent.failed" || data.success === false,
+          failed,
+          error: failed && typeof data.error === "string" ? data.error : undefined,
         };
       }
       continue;

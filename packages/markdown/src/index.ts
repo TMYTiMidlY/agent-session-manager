@@ -22,6 +22,8 @@ export interface RenderMarkdownOptions {
   footer?: string;
   /** Timestamp written into the "Exported" header field (default: now). */
   exportedAt?: Date;
+  /** Data-source label; when set and not "events.jsonl", a fallback note is shown. */
+  sourceLabel?: string;
 }
 
 export function renderSessionMarkdown(session: ParsedSession, opts: RenderMarkdownOptions = {}): string {
@@ -102,14 +104,13 @@ function renderEntry(entry: TimelineEntry): string {
     if (entry.kind === "subagent") {
       const data = entry.data ?? {};
       const name = entry.title ?? "subagent";
-      const stats: string[] = [];
-      if (typeof data.model === "string" && data.model) stats.push(data.model);
-      if (typeof data.totalTokens === "number") stats.push(`${data.totalTokens} tokens`);
-      if (typeof data.totalToolCalls === "number") stats.push(`${data.totalToolCalls} tool calls`);
-      if (typeof data.durationMs === "number") stats.push(`${Math.round(data.durationMs / 1000)}s`);
-      const statLine = stats.length ? `\n\n<sub>${stats.join(" · ")}</sub>` : "";
+      const bits: string[] = [];
+      if (typeof data.model === "string" && data.model) bits.push(data.model);
+      if (data.failed === true) bits.push("failed");
+      const meta = bits.length ? `\n\n<sub>${bits.join(" · ")}</sub>` : "";
       const desc = entry.text ? `\n\n${escapeMd(entry.text)}` : "";
-      return `### 🤖 Subagent: ${escapeMd(name)}${desc}${statLine}\n`;
+      const err = typeof data.error === "string" && data.error ? `\n\n**Error:** ${escapeMd(data.error)}` : "";
+      return `### 🤖 Subagent: ${escapeMd(name)}${desc}${meta}${err}\n`;
     }
     if (entry.kind === "skill") {
       const name = entry.title ?? "skill";

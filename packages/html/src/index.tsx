@@ -469,16 +469,14 @@ function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
 function SubagentCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   const data = entry.data ?? {};
   const name = entry.title ?? "subagent";
-  const stats: string[] = [];
-  const model = data.model;
-  const tokens = data.totalTokens;
-  const toolCalls = data.totalToolCalls;
-  const durationMs = data.durationMs;
-  if (typeof model === "string" && model) stats.push(model);
-  if (typeof tokens === "number") stats.push(`${tokens} tokens`);
-  if (typeof toolCalls === "number") stats.push(`${toolCalls} tool calls`);
-  if (typeof durationMs === "number") stats.push(`${Math.round(durationMs / 1000)}s`);
-  const statLine = stats.join(" · ");
+  // Real subagent events only carry model (+ failed/error); no token/tool-call/duration stats.
+  const model = typeof data.model === "string" ? data.model : undefined;
+  const failed = data.failed === true;
+  const error = typeof data.error === "string" ? data.error : undefined;
+  const bits: string[] = [];
+  if (model) bits.push(model);
+  if (failed) bits.push("failed");
+  const meta = bits.join(" · ");
   return (
     <details {...entryAttrs(entry, "subagent")} open={false}>
       <summary>
@@ -486,12 +484,13 @@ function SubagentCard({ entry, sessionStart }: { entry: TimelineEntry; sessionSt
         <span className="badge">#{entry.index + 1}</span>
         <Icon name="users" />
         <span className="role">子代理</span>
-        <span className="snippet">{statLine ? `${name} — ${statLine}` : name}</span>
+        <span className="snippet">{meta ? `${name} — ${meta}` : name}</span>
         {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
       </summary>
       <div className="body">
         {entry.text && <p>{entry.text}</p>}
-        {statLine && <p className="muted">{statLine}</p>}
+        {model && <p className="muted">{model}</p>}
+        {error && <p className="muted">Error: {error}</p>}
       </div>
     </details>
   );

@@ -29,23 +29,28 @@ describe("agent adapters", () => {
   });
 
   it("maps raw Copilot event names to entries the dredge-up script renders", async () => {
-    const session = await parseCopilot({ agent: "copilot", id: "copilot-rich", path: resolve(root, "copilot-rich.events.jsonl") });
+    const session = await parseCopilot({ agent: "copilot", id: "copilot-parity", path: resolve(root, "copilot-parity.events.jsonl") });
     const byKind = new Map(session.entries.map((entry) => [entry.kind, entry]));
     // these were silently dropped before (wrong raw type strings / no handler)
     for (const kind of ["skill", "subagent", "plan", "warning", "compaction", "error", "task_complete"]) {
       expect(byKind.has(kind), `missing kind: ${kind}`).toBe(true);
     }
-    // subagent.started + subagent.completed merge into one entry with stats
-    const subagent = byKind.get("subagent");
-    expect(subagent?.title).toBe("Explore");
-    expect(subagent?.data?.totalTokens).toBe(1234);
-    expect(subagent?.data?.totalToolCalls).toBe(9);
-    // compaction carries the injected recap + token deltas + duration
+    // subagent.started + subagent.completed merge into one entry (real completed
+    // events carry NO token/tool-call/duration stats — only name/displayName/model)
+    const subagents = session.entries.filter((e) => e.kind === "subagent");
+    expect(subagents[0]?.title).toBe("Explore");
+    expect(subagents[0]?.data?.model).toBe("claude");
+    // a failed subagent is flagged with its error
+    const failed = session.entries.find((e) => e.kind === "subagent" && e.data?.failed === true);
+    expect(failed?.data?.error).toBe("build failed");
+    // compaction carries the injected recap + REAL fields (preTokens/preMessages/durationMs)
     const compaction = byKind.get("compaction");
     expect(compaction?.text).toContain("delta bug");
-    expect(compaction?.data?.durationSec).toBe(4);
-    expect(compaction?.data?.tokensRemoved).toBe(90000);
+    expect(compaction?.data?.preTokens).toBe(120000);
+    expect(compaction?.data?.preMessages).toBe(40);
+    expect(compaction?.data?.durationMs).toBe(4000);
     expect(byKind.get("skill")?.title).toBe("dredge-up");
+    expect(byKind.get("skill")?.data?.trigger).toBe("user");
     expect(byKind.get("task_complete")?.text).toContain("resolved");
   });
 });
