@@ -198,9 +198,14 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       entry.text = tool.result?.log ?? "";
       entry.rawType = type;
       const answer = tool.result?.log;
-      const isDecision = tool.name === "ask_user"
-        || (answer !== undefined && ASK_USER_ANSWER.test(answer));
-      if (isDecision && answer?.trim()) {
+      const succeeded = tool.result?.type === "success";
+      // Anchor the decision to the tool identity: `ask_user` is authoritative.
+      // The "User selected/responded:" prefix is only a fallback for completions
+      // that dropped the tool name — otherwise any tool whose output happens to
+      // start that way would mint a phantom decision.
+      const isAskUser = tool.name === "ask_user"
+        || (tool.name === undefined && answer !== undefined && ASK_USER_ANSWER.test(answer));
+      if (succeeded && isAskUser && answer?.trim()) {
         const question = askUserQuestion(tool.arguments);
         push({
           role: "user",

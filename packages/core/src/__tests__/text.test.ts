@@ -69,6 +69,8 @@ describe("sessionToText", () => {
         },
         { index: 5, role: "assistant", kind: "message", text: "Assistant reply", timestamp: "2026-07-22T00:00:04.000Z" },
         { index: 6, role: "event", kind: "notification", text: "NOTIFICATION NOISE" },
+        { index: 7, role: "assistant", kind: "text", text: "CLAUDE REPLY", timestamp: "2026-07-22T00:00:05.000Z" },
+        { index: 8, role: "assistant", kind: "compacted", text: "CODEX RECAP", timestamp: "2026-07-22T00:00:06.000Z" },
       ],
     };
 
@@ -78,6 +80,10 @@ describe("sessionToText", () => {
     expect(text).toContain("Q: Which database?\nA: User selected: PostgreSQL");
     expect(text).toContain("summary:\nCompaction recap");
     expect(text).toContain("Assistant reply");
+    // Cross-adapter spine: Claude carries assistant text as kind "text", Codex
+    // recaps as kind "compacted" — both must survive the role-based filter.
+    expect(text).toContain("CLAUDE REPLY");
+    expect(text).toContain("CODEX RECAP");
     expect(text).not.toContain("TOOL NOISE");
     expect(text).not.toContain("REASONING NOISE");
     expect(text).not.toContain("NOTIFICATION NOISE");

@@ -197,10 +197,16 @@ export function sessionToText(session: ParsedSession): string {
 }
 
 export function sessionToDialogue(session: ParsedSession): string {
+  // Filter by normalized role so the spine works across adapters: Copilot uses
+  // kind "message", Claude "text", Codex "message"/"compacted". Any user or
+  // assistant entry is dialogue; tool/reasoning/notification carry role "tool"/
+  // "reasoning"/"event" and drop out. Compaction recaps are kept explicitly
+  // (Copilot "compaction" event, Codex "compacted").
   const entries = session.entries.filter((entry) =>
-    entry.kind === "compaction"
-    || (entry.role === "user" && (entry.kind === "message" || entry.kind === "decision"))
-    || (entry.role === "assistant" && entry.kind === "message"));
+    entry.role === "user"
+    || entry.role === "assistant"
+    || entry.kind === "compaction"
+    || entry.kind === "compacted");
   return renderSessionText(session, entries, false);
 }
 

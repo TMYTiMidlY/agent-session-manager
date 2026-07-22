@@ -109,17 +109,23 @@ describe("agent adapters", () => {
     const tools = session.entries.filter((entry) => entry.role === "tool");
     const decisions = session.entries.filter((entry) => entry.role === "user" && entry.kind === "decision");
 
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(5);
     expect(tools.slice(0, 2).map((entry) => entry.tool?.name)).toEqual(["ask_user", "ask_user"]);
     expect(tools.slice(0, 2).map((entry) => entry.tool?.result?.log)).toEqual([
       "User selected: PostgreSQL",
       "User responded: Keep the existing API",
     ]);
+    // A named non-ask_user tool whose output starts "User selected:" must NOT
+    // mint a decision, and a rejected ask_user must NOT either — only two
+    // genuine, successful ask_user answers remain.
+    expect(decisions).toHaveLength(2);
     expect(session.entries.map((entry) => `${entry.role}/${entry.kind}`)).toEqual([
       "tool/tool",
       "user/decision",
       "tool/tool",
       "user/decision",
+      "tool/tool",
+      "tool/tool",
       "tool/tool",
     ]);
     expect(decisions).toEqual([

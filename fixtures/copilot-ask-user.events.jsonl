@@ -5,3 +5,7 @@
 {"type":"tool.execution_complete","data":{"toolCallId":"freeform","toolName":null,"success":true,"result":{"content":"User responded: Keep the existing API"}},"timestamp":"2026-07-22T00:00:04.000Z"}
 {"type":"tool.execution_start","data":{"toolCallId":"not-interactive","toolName":"bash","arguments":{"command":"printf status"}},"timestamp":"2026-07-22T00:00:05.000Z"}
 {"type":"tool.execution_complete","data":{"toolCallId":"not-interactive","success":true,"result":{"content":"prefix User responded: not a decision"}},"timestamp":"2026-07-22T00:00:06.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"named-nonask","toolName":"bash","arguments":{"command":"echo hi"}},"timestamp":"2026-07-22T00:00:07.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"named-nonask","success":true,"result":{"content":"User selected: this is only command output"}},"timestamp":"2026-07-22T00:00:08.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"rejected-ask","toolName":"ask_user","arguments":{"question":"Proceed with deploy?"}},"timestamp":"2026-07-22T00:00:09.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"rejected-ask","toolName":null,"success":false,"result":{"type":"rejected","content":"User cancelled"}},"timestamp":"2026-07-22T00:00:10.000Z"}

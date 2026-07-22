@@ -47,6 +47,20 @@ describe("chronicle cli", () => {
     expect(stdout).not.toContain("claude-fixture");
   });
 
+  it("errors when --session matches no known session", async () => {
+    await expect(
+      execFileAsync(tsx, [
+        cli,
+        "search",
+        "message",
+        "--file",
+        resolve(repoRoot, "fixtures"),
+        "--session",
+        "does-not-exist-xyz",
+      ]),
+    ).rejects.toThrow(/session not found/);
+  });
+
   it("shows fixture sessions as JSON", async () => {
     const { stdout } = await execFileAsync(tsx, [
       cli,

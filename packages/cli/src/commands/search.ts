@@ -15,8 +15,12 @@ export function buildSearchCommand(): Command {
   cmd.action(async (query, opts) => {
     const refs = await resolveRefs(opts);
     const sessionId = typeof opts.session === "string" ? opts.session : undefined;
-    const session = sessionId ? findSessionAmong(refs, sessionId) : undefined;
-    const scopedRefs = sessionId ? (session ? [session] : []) : refs;
+    let scopedRefs = refs;
+    if (sessionId) {
+      const session = findSessionAmong(refs, sessionId);
+      if (!session) throw new Error(`session not found: ${sessionId}`);
+      scopedRefs = [session];
+    }
     const hits = await searchRefs(scopedRefs, query, Number(opts.limit));
     for (const hit of hits) {
       console.log(`${deriveProject(hit.session.cwd)}\t${hit.session.agent}\t${hit.session.id}\t#${hit.entry.index + 1}\t${hit.entry.role}/${hit.entry.kind}\t${hit.excerpt}`);
