@@ -8,6 +8,7 @@ import { Command } from "commander";
 import { AGENTS, discoverPath, discoverSessions, findSession, findSessionAmong, parseSession, searchRefs, sessionToText, type AgentKind, type AgentRoots, type SessionRef } from "@agent-session-exporter/core";
 import { renderSessionHtml } from "@agent-session-exporter/html";
 import { renderSessionMarkdown } from "@agent-session-exporter/markdown";
+import { parseSummaryFormat, sourceLabelForSession, summaryMismatchWarning } from "./render-options.js";
 
 const program = new Command();
 
@@ -56,6 +57,7 @@ program
   .description("Print a session as text or JSON")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-f, --format <format>", "text|json", "text")
+  .option("-o, --out <path>", "output file (default: stdout)")
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
@@ -64,10 +66,16 @@ program
   .action(async (id, opts) => {
     const ref = await resolveOne(id, opts);
     const session = await parseSession(ref);
-    if (opts.format === "json") {
-      console.log(JSON.stringify(session, null, 2));
+    const output = opts.format === "json"
+      ? `${JSON.stringify(session, null, 2)}\n`
+      : sessionToText(session);
+    if (opts.out) {
+      const out = resolve(String(opts.out));
+      await mkdir(dirname(out), { recursive: true });
+      await writeFile(out, output, "utf8");
+      console.log(out);
     } else {
-      process.stdout.write(sessionToText(session));
+      process.stdout.write(output);
     }
   });
 
@@ -77,7 +85,8 @@ program
   .description("Generate a single-file HTML report")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-o, --out <path>", "output file", "session.html")
-  .option("-s, --summary <path>", "inject an HTML fragment at the top of the report")
+  .option("-s, --summary <path>", "inject a raw HTML fragment at the top of the report")
+  .option("--summary-format <html|markdown>", "declare the summary fragment format (no conversion)", parseSummaryFormat, "html")
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
@@ -88,8 +97,13 @@ program
     const session = await parseSession(ref);
     const out = resolve(String(opts.out));
     await mkdir(dirname(out), { recursive: true });
+    const warning = summaryMismatchWarning(opts.summary, opts.summaryFormat, "html");
+    if (warning) console.warn(warning);
     const summary = await readOptionalFile(opts.summary);
-    await writeFile(out, await renderSessionHtml(session, { summary }), "utf8");
+    await writeFile(out, await renderSessionHtml(session, {
+      summary,
+      sourceLabel: sourceLabelForSession(session),
+    }), "utf8");
     console.log(out);
   });
 
@@ -101,6 +115,7 @@ program
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-o, --out <path>", "output file (default: stdout)")
   .option("-s, --summary <path>", "inject a Markdown fragment after the header note")
+  .option("--summary-format <html|markdown>", "declare the summary fragment format (no conversion)", parseSummaryFormat, "markdown")
   .option("--no-reasoning", "drop reasoning entries (default: include)")
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
@@ -110,10 +125,13 @@ program
   .action(async (id, opts) => {
     const ref = await resolveOne(id, opts);
     const session = await parseSession(ref);
+    const warning = summaryMismatchWarning(opts.summary, opts.summaryFormat, "markdown");
+    if (warning) console.warn(warning);
     const summary = await readOptionalFile(opts.summary);
     const markdown = renderSessionMarkdown(session, {
       includeReasoning: opts.reasoning !== false,
       summary,
+      sourceLabel: sourceLabelForSession(session),
     });
     if (opts.out) {
       const out = resolve(String(opts.out));
