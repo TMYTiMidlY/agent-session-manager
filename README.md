@@ -7,7 +7,13 @@
 
 **Export coding-agent CLI sessions to Markdown or single-file HTML.** `agent-session-exporter` reads local history written by GitHub Copilot CLI, Claude Code, and OpenAI Codex CLI, then exports a chosen session as a faithful, self-contained report. The CLI binary is named `recall`.
 
-The HTML output replicates Copilot CLI's built-in `/share html` layout (Primer dark theme, sticky header, filter pills, sidebar map, jump-to-prev/next user message, search). The Markdown output replicates Copilot CLI's `/share file` format byte-for-byte (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` fold of long tool output, diff fences, `[!NOTE]` header block).
+The HTML output is a close replica of Copilot CLI's built-in `/share html`
+layout (Primer theme, sticky header, filter pills, sidebar map,
+jump-to-prev/next user message, search), with
+[documented differences](docs/copilot-timeline.md). The Markdown output follows
+Copilot CLI's `/share file` structure and conventions (`### 💬/👤/🔧/✅`
+headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` folding, diff fences, and
+the `[!NOTE]` header block).
 
 It is read-only against agent state directories. It does **not** write to `.copilot`, `.claude`, or `.codex`, and it does not try to restore sessions back into the original CLIs.
 
@@ -18,8 +24,8 @@ It is read-only against agent state directories. It does **not** write to `.copi
 | List known sessions | `recall list --agent all` |
 | Search local history | `recall search "keyword" --agent all` |
 | Print one session | `recall show <session-id> --agent claude` |
-| Export to Markdown (Copilot `/share file` replica) | `recall md <session-id> -o session.md` |
-| Export to HTML (Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
+| Export to Markdown (Copilot `/share file`-style) | `recall md <session-id> -o session.md` |
+| Export to HTML (close Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
 | Read a session file from anywhere (scp'd / restored) | `recall html --file /path/to/events.jsonl -o session.html` |
 | Search a restored backup cache directory | `recall search "keyword" --file /path/to/restored-cache` |
 | Run backup (restic wrapper) | `recall backup --dry-run` |
@@ -127,16 +133,28 @@ recall show <session-id> --agent codex --format json
 
 ### `recall html`
 
-Write a self-contained HTML report. Replicates Copilot CLI `/share html` (sticky header, filter pills, sidebar map, search, expand/collapse, jump-to-prev/next user message, theme toggle, compact mode, markdown tables, KaTeX math), plus:
+Write a self-contained HTML report. It closely follows Copilot CLI
+`/share html` (sticky header, filter pills, sidebar map, search,
+expand/collapse, jump-to-prev/next user message, theme toggle, compact mode,
+Markdown tables, KaTeX math), but it is not pixel- or byte-identical.
+Deliberate differences include:
 
+- **React rendering instead of the official vanilla bundle assets.** The
+  extracted upstream CSS/JS is a research oracle, not shipped at runtime.
 - **Shiki syntax highlighting** for markdown code fences and diff-style tool output, with dual light + dark themes so the page theme toggle re-colours code without a page reload.
 - **24-hour timestamps** (`YYYY-MM-DD HH:MM:SS` for session start; `HH:MM:SS` for entries on the same day, `MM-DD HH:MM:SS` when a session spans multiple days) — the en-US 12-hour default (`PM/AM`) misreads too easily.
 - **Elapsed pill** in the header derived from `startedAt` → last entry.
 - **Agent summary card** pinned above the timeline via `--summary <file.html>` (renders trusted HTML raw; `data-index="summary"` so real entry #1 stays entry #1).
 - **Merged tool cards** with five result states (success / failure / rejected / denied / pending), matching border colours and status icons.
-- **Subagent / skill / plan entries** parsed from `events.jsonl` and rendered as their own cards + filter pills — the subagent card shows agent name, model, token count, tool-call count, and duration. These match the dredge-up skill and go beyond Copilot's own `/share html` (whose pills stop at compaction / task_complete).
+- **Subagent / skill / plan entries** parsed from `events.jsonl` and rendered
+  as their own cards + filter pills. Subagent cards show the recorded identity,
+  model, description, and failure detail when available. These go beyond
+  Copilot's own `/share html` filter set.
 - **Data-source fallback warning pill** shown in the header when the parser had to read something other than the canonical `events.jsonl`.
 - **Default-open policy mirrors the Copilot bundle**: `user / assistant / error / task_complete` open, everything else folded.
+- **Live-memory-only entries cannot be recovered offline**, including the
+  mascot startup banner, ephemeral retry notices, and the `/share` success
+  receipt. See [`docs/copilot-timeline.md`](docs/copilot-timeline.md).
 
 ```bash
 recall html <session-id> --agent copilot -o report.html
@@ -145,7 +163,10 @@ recall html <session-id> -s agent-summary.html -o report.html   # pin an HTML su
 
 ### `recall md`
 
-Export a session as Markdown that replicates Copilot CLI `/share file` byte-for-byte (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` fold of long tool output, diff fences, `[!NOTE]` header block).
+Export a session as Markdown that follows Copilot CLI `/share file`
+conventions (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps,
+`<details>` folding of long tool output, diff fences, and the `[!NOTE]` header
+block).
 
 ```bash
 recall md <session-id> --agent copilot -o report.md
@@ -189,6 +210,13 @@ recall search "migration" --file /tmp/restored-cache
 When `--file` points at a single file, the `<session-id>` argument is optional.
 When it points at a directory that yields more than one session, pass a
 `<session-id>` to pick one (use `recall list --file <dir>` to see the ids).
+
+## Documentation
+
+- [`docs/copilot-timeline.md`](docs/copilot-timeline.md) — Copilot's in-memory
+  timeline, persisted event stream, offline mapping policy, and fidelity limits.
+- [`docs/backup.md`](docs/backup.md) — backup contents, exclusions, retention,
+  encryption, and restore-oriented architecture.
 
 ## Backup setup
 
@@ -259,11 +287,11 @@ If the timer should run while you are logged out, enable user lingering with you
 | Path | Purpose |
 |---|---|
 | `packages/core` | Agent discovery, parsers, normalized timeline model, search |
-| `packages/markdown` | Markdown renderer (replicates Copilot `/share file`) |
-| `packages/html` | React-based single-file HTML renderer (replicates Copilot `/share html`) |
+| `packages/markdown` | Markdown renderer following Copilot `/share file` conventions |
+| `packages/html` | React-based single-file HTML renderer providing a close Copilot `/share html` replica |
 | `packages/cli` | `recall` command |
 | `fixtures` | Redacted parser and CLI fixtures |
-| `tools/copilot` | Copilot export/share HTML research helpers |
+| [`tools/copilot`](tools/copilot/) | Copilot `/share` bundle drift oracle (research only; not a runtime dependency) |
 | `backup.sh` | restic wrapper used by `recall backup` |
 
 ## Prior art / related projects
@@ -294,7 +322,14 @@ tool. A read-only mirror of each project is kept in a local
 ### Where `agent-session-exporter` is different
 
 1. **GitHub Copilot CLI is a first-class adapter.** None of the projects above currently parse `~/.copilot/session-state/*/events.jsonl`.
-2. **Output replicates Copilot CLI's own `/share file` and `/share html` formats.** That means the same Primer dark theme, the same filter pills, the same emoji-prefixed Markdown headings, the same `<sub>⏱️ Xs</sub>` elapsed timestamps, the same `<details>` fold of long tool output, and the same diff fences — so a user already familiar with the bundled `/share` UX gets pixel- and byte-equivalent offline reports for any of the three agents.
+2. **Output stays close to Copilot CLI's `/share file` and `/share html`
+   conventions without claiming exact equivalence.** Familiar Primer styling,
+   filter concepts, emoji-prefixed Markdown headings, elapsed timestamps,
+   `<details>` folding, and diff fences carry over. The HTML renderer is React
+   rather than the official vanilla bundle, adds subagent / skill / plan and
+   summary entries, uses Shiki and 24-hour timestamps, and cannot reconstruct
+   entries that existed only in live memory. See
+   [`docs/copilot-timeline.md`](docs/copilot-timeline.md).
 3. **Single-file HTML is the default deliverable.** ~1 MB, no server, no build, opens by double-click. (Most peers ship a Tauri app, an Express/FastAPI web app, or a TUI; the only static-HTML peers are Simon's `claude-code-transcripts` (Claude-only) and `daaain/claude-code-log` (Claude-only).)
 4. **Library + CLI, not just an app.** `@agent-session-exporter/core`, `/markdown`, `/html` are independently importable for downstream tools that want the parser or renderer without the CLI.
 5. **No live agent SDK coupling.** Read-only, no Anthropic / OpenAI / GitHub API calls for normal operation; no ToS surface area like `claude-code-viewer` has had to navigate.
