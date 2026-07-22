@@ -99,6 +99,24 @@ function renderEntry(entry: TimelineEntry): string {
     }
     if (entry.kind === "compaction") return `### ◌ Conversation Compacted\n`;
     if (entry.kind === "task_complete") return `### ✓ Task Complete\n\n${entry.text}\n`;
+    if (entry.kind === "subagent") {
+      const data = entry.data ?? {};
+      const name = entry.title ?? "subagent";
+      const stats: string[] = [];
+      if (typeof data.model === "string" && data.model) stats.push(data.model);
+      if (typeof data.totalTokens === "number") stats.push(`${data.totalTokens} tokens`);
+      if (typeof data.totalToolCalls === "number") stats.push(`${data.totalToolCalls} tool calls`);
+      if (typeof data.durationMs === "number") stats.push(`${Math.round(data.durationMs / 1000)}s`);
+      const statLine = stats.length ? `\n\n<sub>${stats.join(" · ")}</sub>` : "";
+      const desc = entry.text ? `\n\n${escapeMd(entry.text)}` : "";
+      return `### 🤖 Subagent: ${escapeMd(name)}${desc}${statLine}\n`;
+    }
+    if (entry.kind === "skill") {
+      const name = entry.title ?? "skill";
+      const desc = entry.text ? `\n\n${escapeMd(entry.text)}` : "";
+      return `### ✨ Skill: ${escapeMd(name)}${desc}\n`;
+    }
+    if (entry.kind === "plan") return heading("📋 Plan", entry.text);
   }
   return heading(`📌 ${entry.kind}`, entry.text);
 }

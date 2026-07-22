@@ -55,6 +55,21 @@ describe("renderSessionHtml", () => {
     expect(html).toContain("tool-failure");
   });
 
+  it("renders subagent / skill / plan cards + pills (dredge-up parity)", async () => {
+    const html = await renderSessionHtml(baseSession([
+      { index: 0, role: "event", kind: "subagent", title: "Explore", text: "scout",
+        data: { model: "claude", totalTokens: 1234, totalToolCalls: 9, durationMs: 4200 } },
+      { index: 1, role: "event", kind: "skill", title: "dredge-up", text: "recap", data: { source: "project" } },
+      { index: 2, role: "event", kind: "plan", text: "Plan updated", data: { operation: "updated" } },
+    ]));
+    expect(html).toContain('data-filter="subagent"');
+    expect(html).toContain('data-filter="skill"');
+    expect(html).toContain('data-filter="plan"');
+    expect(html).toContain("1234 tokens");
+    // the dead check-circle-2 icon must not resurface
+    expect(html).not.toContain("check-circle-2");
+  });
+
   it("injects an agent summary card above the timeline", async () => {
     const html = await renderSessionHtml(
       baseSession([{ index: 0, role: "user", kind: "message", text: "hi" }]),

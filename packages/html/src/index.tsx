@@ -139,6 +139,9 @@ type FilterKey =
   | "handoff"
   | "compaction"
   | "task_complete"
+  | "subagent"
+  | "skill"
+  | "plan"
   | "info"
   | "warning"
   | "error"
@@ -147,6 +150,7 @@ type FilterKey =
 const PILL_ORDER: FilterKey[] = [
   "summary", "user", "assistant", "tool", "reasoning",
   "notification", "handoff", "compaction", "task_complete",
+  "subagent", "skill", "plan",
   "info", "warning", "error", "system",
 ];
 
@@ -166,7 +170,10 @@ const PILL_DEFS: Record<FilterKey, PillDef> = {
   notification:  { key: "notification",  label: "通知",     icon: "bell",          accent: "sky" },
   handoff:       { key: "handoff",       label: "交接",     icon: "shuffle",       accent: "sky" },
   compaction:    { key: "compaction",    label: "压缩",     icon: "circle-dashed", accent: "sky" },
-  task_complete: { key: "task_complete", label: "任务完成", icon: "check-circle-2",accent: "emerald" },
+  task_complete: { key: "task_complete", label: "任务完成", icon: "circle-check-big",accent: "emerald" },
+  subagent:      { key: "subagent",      label: "子代理",   icon: "users",         accent: "violet" },
+  skill:         { key: "skill",         label: "技能",     icon: "sparkles",      accent: "amber" },
+  plan:          { key: "plan",          label: "计划",     icon: "list-checks",   accent: "green" },
   info:          { key: "info",          label: "信息",     icon: "info",          accent: "sky" },
   warning:       { key: "warning",       label: "警告",     icon: "alert-triangle",accent: "amber" },
   error:         { key: "error",         label: "错误",     icon: "x",             accent: "rose" },
@@ -184,6 +191,9 @@ function entryFilterKey(entry: TimelineEntry): FilterKey {
   if (entry.kind === "handoff") return "handoff";
   if (entry.kind === "compaction") return "compaction";
   if (entry.kind === "task_complete") return "task_complete";
+  if (entry.kind === "subagent") return "subagent";
+  if (entry.kind === "skill") return "skill";
+  if (entry.kind === "plan") return "plan";
   if (entry.kind === "warning") return "warning";
   if (entry.kind === "error") return "error";
   return "info";
@@ -446,11 +456,84 @@ function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
   const kind = entry.kind;
   if (kind === "handoff") return <HandoffCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "compaction") return <SimpleEntry entry={entry} isMarkdown={false} icon="circle-dashed" sessionStart={sessionStart} />;
-  if (kind === "task_complete") return <SimpleEntry entry={entry} isMarkdown icon="check-circle-2" sessionStart={sessionStart} />;
+  if (kind === "task_complete") return <SimpleEntry entry={entry} isMarkdown icon="circle-check-big" sessionStart={sessionStart} />;
+  if (kind === "subagent") return <SubagentCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "skill") return <SkillCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "plan") return <PlanCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "notification") return <NotificationCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="alert-triangle" sessionStart={sessionStart} />;
   if (kind === "error") return <SimpleEntry entry={entry} isMarkdown={false} icon="x" sessionStart={sessionStart} />;
   return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
+}
+
+function SubagentCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const data = entry.data ?? {};
+  const name = entry.title ?? "subagent";
+  const stats: string[] = [];
+  const model = data.model;
+  const tokens = data.totalTokens;
+  const toolCalls = data.totalToolCalls;
+  const durationMs = data.durationMs;
+  if (typeof model === "string" && model) stats.push(model);
+  if (typeof tokens === "number") stats.push(`${tokens} tokens`);
+  if (typeof toolCalls === "number") stats.push(`${toolCalls} tool calls`);
+  if (typeof durationMs === "number") stats.push(`${Math.round(durationMs / 1000)}s`);
+  const statLine = stats.join(" · ");
+  return (
+    <details {...entryAttrs(entry, "subagent")} open={false}>
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name="users" />
+        <span className="role">子代理</span>
+        <span className="snippet">{statLine ? `${name} — ${statLine}` : name}</span>
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+      </summary>
+      <div className="body">
+        {entry.text && <p>{entry.text}</p>}
+        {statLine && <p className="muted">{statLine}</p>}
+      </div>
+    </details>
+  );
+}
+
+function SkillCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const data = entry.data ?? {};
+  const name = entry.title ?? "skill";
+  const source = typeof data.source === "string" ? data.source : undefined;
+  return (
+    <details {...entryAttrs(entry, "skill")} open={false}>
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name="sparkles" />
+        <span className="role">技能</span>
+        <span className="snippet">{source ? `${name} (${source})` : name}</span>
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+      </summary>
+      <div className="body">
+        {entry.text && <p>{entry.text}</p>}
+      </div>
+    </details>
+  );
+}
+
+function PlanCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  return (
+    <details {...entryAttrs(entry, "plan")} open={false}>
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name="list-checks" />
+        <span className="role">计划</span>
+        <span className="snippet">{firstLine(entry.text)}</span>
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+      </summary>
+      <div className="body">
+        <PreBlock text={entry.text} />
+      </div>
+    </details>
+  );
 }
 
 function HandoffCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
