@@ -28,6 +28,25 @@ describe("chronicle cli", () => {
     expect(stdout).toContain("gamma");
   });
 
+  it("restricts search hits to a session id prefix", async () => {
+    const { stdout } = await execFileAsync(tsx, [
+      cli,
+      "search",
+      "message",
+      "--file",
+      resolve(repoRoot, "fixtures"),
+      "--session",
+      "codex-fixt",
+      "--limit",
+      "1",
+    ]);
+    const lines = stdout.trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("\tcodex\tcodex-fixture\t");
+    expect(stdout).not.toContain("copilot-fixture");
+    expect(stdout).not.toContain("claude-fixture");
+  });
+
   it("shows fixture sessions as JSON", async () => {
     const { stdout } = await execFileAsync(tsx, [
       cli,

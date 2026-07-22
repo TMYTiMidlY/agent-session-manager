@@ -100,6 +100,48 @@ describe("agent adapters", () => {
     expect(session.updatedAt).toBe("2026-07-22T00:00:09.000Z");
   });
 
+  it("emits ask_user answers as decisions without dropping the tool entries", async () => {
+    const session = await parseCopilot({
+      agent: "copilot",
+      id: "copilot-ask-user",
+      path: resolve(root, "copilot-ask-user.events.jsonl"),
+    });
+    const tools = session.entries.filter((entry) => entry.role === "tool");
+    const decisions = session.entries.filter((entry) => entry.role === "user" && entry.kind === "decision");
+
+    expect(tools).toHaveLength(3);
+    expect(tools.slice(0, 2).map((entry) => entry.tool?.name)).toEqual(["ask_user", "ask_user"]);
+    expect(tools.slice(0, 2).map((entry) => entry.tool?.result?.log)).toEqual([
+      "User selected: PostgreSQL",
+      "User responded: Keep the existing API",
+    ]);
+    expect(session.entries.map((entry) => `${entry.role}/${entry.kind}`)).toEqual([
+      "tool/tool",
+      "user/decision",
+      "tool/tool",
+      "user/decision",
+      "tool/tool",
+    ]);
+    expect(decisions).toEqual([
+      expect.objectContaining({
+        role: "user",
+        kind: "decision",
+        title: "Which database should we use?",
+        text: "Q: Which database should we use?\nA: User selected: PostgreSQL",
+        timestamp: "2026-07-22T00:00:02.000Z",
+        rawType: "ask_user.decision",
+      }),
+      expect.objectContaining({
+        role: "user",
+        kind: "decision",
+        title: "Any implementation constraints?",
+        text: "Q: Any implementation constraints?\nA: User responded: Keep the existing API",
+        timestamp: "2026-07-22T00:00:04.000Z",
+        rawType: "ask_user.decision",
+      }),
+    ]);
+  });
+
   it("reports handled, intentionally ignored, and unknown Copilot event types", async () => {
     const session = await parseCopilot({
       agent: "copilot",

@@ -193,6 +193,18 @@ export async function discoverPath(path: string, agentOverride?: AgentKind): Pro
 }
 
 export function sessionToText(session: ParsedSession): string {
+  return renderSessionText(session, session.entries);
+}
+
+export function sessionToDialogue(session: ParsedSession): string {
+  const entries = session.entries.filter((entry) =>
+    entry.kind === "compaction"
+    || (entry.role === "user" && (entry.kind === "message" || entry.kind === "decision"))
+    || (entry.role === "assistant" && entry.kind === "message"));
+  return renderSessionText(session, entries, false);
+}
+
+function renderSessionText(session: ParsedSession, entries: TimelineEntry[], includeEntryTitles = true): string {
   const header = [
     `session: ${session.id}`,
     `agent: ${session.agent}`,
@@ -200,15 +212,21 @@ export function sessionToText(session: ParsedSession): string {
     session.startedAt ? `started: ${session.startedAt}` : undefined,
     "",
   ].filter((line) => line !== undefined).join("\n");
-  const body = session.entries.map((entry) => {
+  const body = entries.map((entry) => {
     const time = entry.timestamp ? ` ${entry.timestamp}` : "";
-    const title = entry.title ? ` ${entry.title}` : "";
+    const title = includeEntryTitles && entry.title ? ` ${entry.title}` : "";
     return `## ${entry.index + 1}. ${entry.role}/${entry.kind}${title}${time}\n\n${timelineEntryToText(entry)}`;
   }).join("\n\n");
   return `${header}${body}\n`;
 }
 
 function timelineEntryToText(entry: TimelineEntry): string {
+  if (entry.kind === "decision") {
+    const question = entry.title?.trim();
+    const prefix = question ? `Q: ${question}\nA: ` : "";
+    return prefix && !entry.text.startsWith(prefix) ? `${prefix}${entry.text}` : entry.text;
+  }
+
   if (entry.tool) {
     const lines = [`tool: ${entry.tool.name ?? "(unnamed)"}`];
     if (entry.tool.arguments !== undefined) lines.push(`args: ${stringifyInline(entry.tool.arguments)}`);

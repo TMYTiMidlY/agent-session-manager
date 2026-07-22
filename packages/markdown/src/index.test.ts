@@ -35,6 +35,21 @@ describe("renderSessionMarkdown", () => {
     expect(out).toContain("⏱️ 20s");
   });
 
+  it("renders user decisions with their question and answer", () => {
+    const out = renderSessionMarkdown(session([
+      {
+        index: 0,
+        role: "user",
+        kind: "decision",
+        title: "Which database?",
+        text: "Q: Which database?\nA: User selected: PostgreSQL",
+      },
+    ]), { exportedAt: fixedDate });
+    expect(out).toContain("### 👤 User");
+    expect(out).toContain("Q: Which database?");
+    expect(out).toContain("A: User selected: PostgreSQL");
+  });
+
   it("renders merged tool entries with compact arg summary and success emoji", () => {
     const out = renderSessionMarkdown(session([
       {

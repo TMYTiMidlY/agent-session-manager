@@ -15,7 +15,7 @@ Copilot CLI's `/share file` structure and conventions (`### 💬/👤/🔧/✅`
 headings, `<sub>⏱️</sub>` elapsed stamps, `<details>` folding, diff fences, and
 the `[!NOTE]` header block).
 
-It is read-only against agent state directories. It does **not** write to `.copilot`, `.claude`, or `.codex`, and it does not try to restore sessions back into the original CLIs.
+It is read-only against agent state directories. It does **not** write to `.copilot`, `.claude`, or `.codex`, and it does not try to restore sessions back into the original CLIs. All reads are strictly local: `chronicle` never contacts a cloud or session-sync backend and never fetches session history over the network.
 
 ## What you can do
 
@@ -141,12 +141,16 @@ ancestor of the recorded cwd, or `(unscoped)`): `project`, `agent`,
 
 ### `chronicle show`
 
-Print a session as text or JSON:
+Print a session as text, dialogue, or JSON:
 
 ```bash
 chronicle show <session-id> --agent codex
+chronicle show <session-id> --agent copilot --format dialogue
 chronicle show <session-id> --agent codex --format json
 ```
+
+`--format dialogue` 只保留用户消息 / 用户决策（`ask_user` 回答）/ 压缩摘要 /
+助手回复，跳过工具调用，适合 dredge-up 通读。
 
 ### `chronicle html`
 
@@ -168,7 +172,8 @@ Deliberate differences include:
   model, description, and failure detail when available. These go beyond
   Copilot's own `/share html` filter set.
 - **Data-source fallback warning pill** shown in the header when the parser had to read something other than the canonical `events.jsonl`.
-- **Default-open policy mirrors the Copilot bundle**: `user / assistant / error / task_complete` open, everything else folded.
+- **Default-open policy otherwise mirrors the Copilot bundle**: `user / assistant / error / task_complete` open, everything else folded.
+- **Single-line info entries** (model changes / cancellations) are shown expanded rather than folded, unlike the official bundle.
 - **Live-memory-only entries cannot be recovered offline**, including the
   mascot startup banner, ephemeral retry notices, and the `/share` success
   receipt. See [`docs/copilot-timeline.md`](docs/copilot-timeline.md).

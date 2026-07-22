@@ -47,6 +47,10 @@ The official `/share html` bundle has a fixed set of 12 filter classes:
 pin a summary card above the reconstructed timeline. These are deliberate
 extensions beyond the official filter set.
 
+Unlike the official bundle, `chronicle` expands single-line info entries such
+as model changes and user cancellations by default; multi-line info entries
+remain folded.
+
 ### Reasoning is an offline extension
 
 Persisted `assistant.message` events can contain `reasoningText`, but Copilot's

@@ -1,0 +1,7 @@
+{"type":"session.start","data":{"sessionId":"copilot-ask-user","startTime":"2026-07-22T00:00:00.000Z","context":{"cwd":"/workspace/ask-user","repository":"fixture/ask-user"}},"timestamp":"2026-07-22T00:00:00.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"multiple-choice","toolName":"ask_user","arguments":{"question":"Which database should we use?","choices":["PostgreSQL","SQLite"]}},"timestamp":"2026-07-22T00:00:01.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"multiple-choice","toolName":null,"success":true,"result":{"content":"User selected: PostgreSQL"}},"timestamp":"2026-07-22T00:00:02.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"freeform","toolName":"ask_user","arguments":{"question":"Any implementation constraints?"}},"timestamp":"2026-07-22T00:00:03.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"freeform","toolName":null,"success":true,"result":{"content":"User responded: Keep the existing API"}},"timestamp":"2026-07-22T00:00:04.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"not-interactive","toolName":"bash","arguments":{"command":"printf status"}},"timestamp":"2026-07-22T00:00:05.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"not-interactive","success":true,"result":{"content":"prefix User responded: not a decision"}},"timestamp":"2026-07-22T00:00:06.000Z"}

@@ -271,6 +271,7 @@ function Report({ session, summary, sourceLabel }: { session: ParsedSession; sum
               {showFallbackWarning && (
                 <span className="fallback-warning" title="Data source is not the canonical events.jsonl">
                   ⚠ 数据源回退到 {sourceLabel}
+                  {sourceLabel?.startsWith("db.turns") && "（交互式用户决策与工具条目在此模式下不可恢复）"}
                 </span>
               )}
             </div>
@@ -370,14 +371,14 @@ function Entry({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: s
 }
 
 /**
- * Default-open policy mirrors the Copilot bundle's own /share html:
- * `user / assistant / error / task_complete` are expanded by default;
- * everything else (`reasoning / info / warning / tool / notification /
- * handoff / compaction / group / system`) is folded. Users can flip any
- * card individually, or use the Collapse-all / Expand-all buttons.
+ * Default-open policy mirrors the Copilot bundle's own /share html except
+ * that single-line info entries are expanded for immediate visibility.
+ * Users can flip any card individually, or use the Collapse-all / Expand-all
+ * buttons.
  */
 function defaultOpen(entry: TimelineEntry): boolean {
   if (entry.role === "user" || entry.role === "assistant") return true;
+  if (entry.role === "event" && entry.kind === "info" && !entry.text.includes("\n")) return true;
   if (entry.role === "event" && (entry.kind === "error" || entry.kind === "task_complete")) return true;
   return false;
 }

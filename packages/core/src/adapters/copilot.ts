@@ -6,6 +6,7 @@ import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
 
 const DEFAULT_ROOT = "~/.copilot/session-state";
 const DEFAULT_DB = "~/.copilot/session-store.db";
+const ASK_USER_ANSWER = /^User (selected|responded|answered):/u;
 
 const HANDLED_EVENT_TYPES = new Set([
   "session.start",
@@ -196,6 +197,20 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       entry.title = tool.name;
       entry.text = tool.result?.log ?? "";
       entry.rawType = type;
+      const answer = tool.result?.log;
+      const isDecision = tool.name === "ask_user"
+        || (answer !== undefined && ASK_USER_ANSWER.test(answer));
+      if (isDecision && answer?.trim()) {
+        const question = askUserQuestion(tool.arguments);
+        push({
+          role: "user",
+          kind: "decision",
+          title: question,
+          text: question ? `Q: ${question}\nA: ${answer}` : answer,
+          timestamp,
+          rawType: "ask_user.decision",
+        });
+      }
       continue;
     }
 
@@ -458,6 +473,12 @@ function stringOrEmpty(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
   return contentToText(value);
+}
+
+function askUserQuestion(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const question = (value as Record<string, unknown>).question;
+  return typeof question === "string" && question.trim() ? question.trim() : undefined;
 }
 
 function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | undefined, rawType: string): Omit<TimelineEntry, "index"> {

@@ -1,17 +1,23 @@
 import { Command } from "commander";
-import { deriveProject, searchRefs } from "@agent-session-manager/core";
+import { deriveProject, findSessionAmong, searchRefs } from "@agent-session-manager/core";
 import { withAgent, withRoots, withSource } from "../options/common.js";
 import { resolveRefs } from "../options/resolve.js";
 
 export function buildSearchCommand(): Command {
   const cmd = new Command("search")
     .argument("<query>")
-    .description("Search user/assistant/tool text across sessions");
-  withAgent(cmd).option("-l, --limit <n>", "maximum hits", "20");
+    .description("Search timeline text across sessions or within one session");
+  withAgent(cmd)
+    .option("--session <id>", "restrict search to one session id or prefix")
+    .option("-l, --limit <n>", "maximum hits", "20");
   withSource(cmd, "search an explicit session file/directory (e.g. a restic-restored backup cache)");
   withRoots(cmd);
   cmd.action(async (query, opts) => {
-    const hits = await searchRefs(await resolveRefs(opts), query, Number(opts.limit));
+    const refs = await resolveRefs(opts);
+    const sessionId = typeof opts.session === "string" ? opts.session : undefined;
+    const session = sessionId ? findSessionAmong(refs, sessionId) : undefined;
+    const scopedRefs = sessionId ? (session ? [session] : []) : refs;
+    const hits = await searchRefs(scopedRefs, query, Number(opts.limit));
     for (const hit of hits) {
       console.log(`${deriveProject(hit.session.cwd)}\t${hit.session.agent}\t${hit.session.id}\t#${hit.entry.index + 1}\t${hit.entry.role}/${hit.entry.kind}\t${hit.excerpt}`);
     }

@@ -370,6 +370,7 @@ describe("renderSessionHtml", () => {
     );
     expect(html).toContain("fallback-warning");
     expect(html).toContain("db.turns (fallback)");
+    expect(html).toContain("交互式用户决策与工具条目在此模式下不可恢复");
   });
 
   it("uses 24-hour YYYY-MM-DD HH:MM:SS format for session start", async () => {
@@ -456,17 +457,18 @@ describe("renderSessionHtml", () => {
     expect(() => new Function(script!)).not.toThrow();
   });
 
-  it("keeps user + error entries open by default and folds reasoning + info", async () => {
+  it("keeps one-line info open and folds multiline info", async () => {
     const html = await renderSessionHtml(baseSession([
       { index: 0, role: "user", kind: "message", text: "u" },
       { index: 1, role: "reasoning", kind: "reasoning", text: "r" },
       { index: 2, role: "event", kind: "error", text: "boom" },
-      { index: 3, role: "event", kind: "info", text: "note" },
+      { index: 3, role: "event", kind: "info", text: "Model changed from A to B" },
+      { index: 4, role: "event", kind: "info", text: "First line\nSecond line" },
     ]));
-    // details open by default has `open` attribute; folded ones don't
     expect(html).toMatch(/id="entry-0"[^>]*open/);
     expect(html).not.toMatch(/id="entry-1"[^>]*open/);
     expect(html).toMatch(/id="entry-2"[^>]*open/);
-    expect(html).not.toMatch(/id="entry-3"[^>]*open/);
+    expect(html).toMatch(/id="entry-3"[^>]*open/);
+    expect(html).not.toMatch(/id="entry-4"[^>]*open/);
   });
 });
