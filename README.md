@@ -20,6 +20,8 @@ It is read-only against agent state directories. It does **not** write to `.copi
 | Print one session | `recall show <session-id> --agent claude` |
 | Export to Markdown (Copilot `/share file` replica) | `recall md <session-id> -o session.md` |
 | Export to HTML (Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
+| Read a session file from anywhere (scp'd / restored) | `recall html --file /path/to/events.jsonl -o session.html` |
+| Search a restored backup cache directory | `recall search "keyword" --file /path/to/restored-cache` |
 | Run backup (restic wrapper) | `recall backup --dry-run` |
 
 Supported agents:
@@ -27,6 +29,13 @@ Supported agents:
 - **Copilot CLI**: reads `~/.copilot/session-state/*/events.jsonl`
 - **Claude Code**: reads `~/.claude/projects/**/*.jsonl`
 - **Codex CLI**: reads `~/.codex/sessions/**/*.jsonl`
+
+Every read command (`list`, `search`, `show`, `html`, `md`) also accepts
+`--file <path>` (alias `--events <path>`) to read an explicit `*.jsonl` file — or
+a directory walked for them — instead of the live agent homes. The agent format
+is auto-detected per file (override with `--agent`). This is how you render a
+session copied off another machine, or search a restic-restored backup cache
+without first placing files back under `~/.copilot`.
 
 ## Install (no npm publish yet)
 
@@ -152,7 +161,33 @@ recall backup --dry-run
 recall backup
 ```
 
-Backup is a source for future recall/search work. Current search reads live local history; searching inside restored backup caches is tracked separately.
+Backup is a source for future recall/search work. Current search reads live local history; a *persistent* index over restored backup caches is tracked separately (issue #1). For ad-hoc work today, restore a snapshot and point any read command at it with `--file`:
+
+```bash
+restic restore latest --target /tmp/cache          # restore a snapshot
+recall search "keyword" --file /tmp/cache           # search the restored cache
+recall html <session-id> --file /tmp/cache -o s.html
+```
+
+### Reading sessions from outside the live agent homes
+
+`--file <path>` (alias `--events <path>`) makes `list` / `search` / `show` /
+`html` / `md` read an explicit path instead of `~/.copilot`, `~/.claude`, or
+`~/.codex`:
+
+```bash
+# a single session file copied off another machine (agent auto-detected)
+recall show --file ~/dl/events.jsonl --format json
+recall html --file ~/dl/events.jsonl -o report.html
+
+# a whole directory (walked for *.jsonl; each file's agent auto-detected)
+recall list --file /tmp/restored-cache
+recall search "migration" --file /tmp/restored-cache
+```
+
+When `--file` points at a single file, the `<session-id>` argument is optional.
+When it points at a directory that yields more than one session, pass a
+`<session-id>` to pick one (use `recall list --file <dir>` to see the ids).
 
 ## Backup setup
 
@@ -285,7 +320,7 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 ## Roadmap
 
 - **Single-file distribution.** Bundle the CLI with `bun build --compile` and attach native binaries to GitHub Releases; add a `npm i -g github:...` one-liner once workspace bundling is set up.
-- **Cached search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`).
+- **Persistent index/cache search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`). Ad-hoc search over a restored cache directory already works via `recall search --file <dir>`; the remaining work is the `recall backup cache` restore helper plus a durable SQLite/FTS index.
 - **Move the old `dredge-up` skill into a thin wrapper that calls `recall`.**
 - **Improve adapter fidelity for every agent format.**
 - **Project-hierarchy index page** (inspired by `daaain/claude-code-log`).

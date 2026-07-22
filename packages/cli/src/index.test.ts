@@ -41,4 +41,36 @@ describe("recall cli", () => {
     expect(parsed.agent).toBe("claude");
     expect(parsed.entries.length).toBeGreaterThan(0);
   });
+
+  it("shows an explicit --file session without a session id (agent auto-detected)", async () => {
+    const { stdout } = await execFileAsync(tsx, [
+      cli,
+      "show",
+      "--file",
+      resolve(repoRoot, "fixtures/copilot/copilot-fixture/events.jsonl"),
+      "--format",
+      "json",
+    ]);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.agent).toBe("copilot");
+    expect(parsed.id).toBe("copilot-fixture");
+  });
+
+  it("searches an explicit --file directory (restic-cache style)", async () => {
+    const { stdout } = await execFileAsync(tsx, [
+      cli,
+      "search",
+      "gamma",
+      "--file",
+      resolve(repoRoot, "fixtures"),
+    ]);
+    expect(stdout).toContain("codex");
+    expect(stdout).toContain("gamma");
+  });
+
+  it("errors clearly when --file matches many sessions and no id is given", async () => {
+    await expect(
+      execFileAsync(tsx, [cli, "show", "--file", resolve(repoRoot, "fixtures")]),
+    ).rejects.toThrow(/pass a <session-id>/);
+  });
 });

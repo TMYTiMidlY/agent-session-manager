@@ -6,6 +6,26 @@ GitHub issue: https://github.com/TMYTiMidlY/agent-session-exporter/issues (re-fi
 
 `recall search/show/html` currently reads live local agent history directories. Add support for searching historical sessions restored from restic snapshots.
 
+## Progress (2026-07-22)
+
+Partially addressed. Every read command now accepts `--file <path>` (alias
+`--events <path>`), which reads an explicit `*.jsonl` file or a directory walked
+for them, auto-detecting each file's agent. So the **ad-hoc** flow already works:
+
+```bash
+restic restore latest --target /tmp/cache
+recall search "keyword" --file /tmp/cache
+recall html <session-id> --file /tmp/cache -o report.html
+```
+
+Still open (the durable half of this issue):
+
+- `recall backup cache latest` convenience wrapper that restores the relevant
+  agent paths into a cache directory.
+- `recall index --source cache` building a persistent SQLite/FTS index.
+- `--source cache` as a named source alias (today you pass the concrete path via
+  `--file`).
+
 ## Desired behavior
 
 - `recall backup cache latest` restores the relevant agent history paths from the latest restic snapshot into a local cache directory.

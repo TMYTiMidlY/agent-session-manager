@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Command } from "commander";
-import { AGENTS, discoverSessions, findSession, parseSession, searchSessions, sessionToText, type AgentKind, type AgentRoots } from "@agent-session-exporter/core";
+import { AGENTS, discoverPath, discoverSessions, findSession, findSessionAmong, parseSession, searchRefs, sessionToText, type AgentKind, type AgentRoots, type SessionRef } from "@agent-session-exporter/core";
 import { renderSessionHtml } from "@agent-session-exporter/html";
 import { renderSessionMarkdown } from "@agent-session-exporter/markdown";
 
@@ -20,11 +20,13 @@ program
   .command("list")
   .description("List discovered sessions")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
+  .option("--file <path>", "read an explicit session file/directory instead of the live agent homes (agent auto-detected)")
+  .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (opts) => {
-    const sessions = await discoverSessions(parseAgents(opts.agent), rootsFromOptions(opts));
+    const sessions = await resolveRefs(opts);
     for (const session of sessions) {
       console.log(`${session.agent}\t${session.id}\t${session.path}`);
     }
@@ -36,11 +38,13 @@ program
   .description("Search user/assistant/tool text across sessions")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-l, --limit <n>", "maximum hits", "20")
+  .option("--file <path>", "search an explicit session file/directory (e.g. a restic-restored backup cache)")
+  .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (query, opts) => {
-    const hits = await searchSessions(query, parseAgents(opts.agent), rootsFromOptions(opts), Number(opts.limit));
+    const hits = await searchRefs(await resolveRefs(opts), query, Number(opts.limit));
     for (const hit of hits) {
       console.log(`${hit.session.agent}\t${hit.session.id}\t#${hit.entry.index + 1}\t${hit.entry.role}/${hit.entry.kind}\t${hit.excerpt}`);
     }
@@ -48,15 +52,17 @@ program
 
 program
   .command("show")
-  .argument("<session-id>")
+  .argument("[session-id]", "session id (optional when --file points at a single file)")
   .description("Print a session as text or JSON")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-f, --format <format>", "text|json", "text")
+  .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
+  .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
-    const ref = await mustFindSession(id, parseAgents(opts.agent), rootsFromOptions(opts));
+    const ref = await resolveOne(id, opts);
     const session = await parseSession(ref);
     if (opts.format === "json") {
       console.log(JSON.stringify(session, null, 2));
@@ -67,16 +73,18 @@ program
 
 program
   .command("html")
-  .argument("<session-id>")
+  .argument("[session-id]", "session id (optional when --file points at a single file)")
   .description("Generate a single-file HTML report")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-o, --out <path>", "output file", "session.html")
   .option("-s, --summary <path>", "inject an HTML fragment at the top of the report")
+  .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
+  .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
-    const ref = await mustFindSession(id, parseAgents(opts.agent), rootsFromOptions(opts));
+    const ref = await resolveOne(id, opts);
     const session = await parseSession(ref);
     const out = resolve(String(opts.out));
     await mkdir(dirname(out), { recursive: true });
@@ -88,17 +96,19 @@ program
 program
   .command("md")
   .alias("markdown")
-  .argument("<session-id>")
+  .argument("[session-id]", "session id (optional when --file points at a single file)")
   .description("Export the session as a Markdown file (replicates Copilot CLI /share file)")
   .option("-a, --agent <agent>", "copilot|claude|codex|all", "all")
   .option("-o, --out <path>", "output file (default: stdout)")
   .option("-s, --summary <path>", "inject a Markdown fragment after the header note")
   .option("--no-reasoning", "drop reasoning entries (default: include)")
+  .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
+  .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
-    const ref = await mustFindSession(id, parseAgents(opts.agent), rootsFromOptions(opts));
+    const ref = await resolveOne(id, opts);
     const session = await parseSession(ref);
     const summary = await readOptionalFile(opts.summary);
     const markdown = renderSessionMarkdown(session, {
@@ -131,8 +141,39 @@ function parseAgents(value: string): AgentKind[] {
   throw new Error(`unknown agent: ${value}`);
 }
 
-async function mustFindSession(id: string, agents: AgentKind[], roots: AgentRoots) {
-  const ref = await findSession(id, agents, roots);
+function filePathFromOptions(opts: Record<string, unknown>): string | undefined {
+  if (typeof opts.file === "string" && opts.file) return opts.file;
+  if (typeof opts.events === "string" && opts.events) return opts.events;
+  return undefined;
+}
+
+function agentOverrideFromOptions(opts: Record<string, unknown>): AgentKind | undefined {
+  return typeof opts.agent === "string" && opts.agent !== "all" ? parseAgents(opts.agent)[0] : undefined;
+}
+
+/** Resolve the working set of sessions from --file/--events or the live agent homes. */
+async function resolveRefs(opts: Record<string, unknown>): Promise<SessionRef[]> {
+  const file = filePathFromOptions(opts);
+  if (file) return discoverPath(file, agentOverrideFromOptions(opts));
+  return discoverSessions(parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
+}
+
+/** Resolve exactly one session for show/html/md. */
+async function resolveOne(id: string | undefined, opts: Record<string, unknown>): Promise<SessionRef> {
+  const file = filePathFromOptions(opts);
+  if (file) {
+    const refs = await discoverPath(file, agentOverrideFromOptions(opts));
+    if (refs.length === 0) throw new Error(`no sessions found in --file path: ${file}`);
+    if (!id) {
+      if (refs.length === 1) return refs[0];
+      throw new Error(`--file matched ${refs.length} sessions; pass a <session-id> to pick one ('recall list --file ${file}')`);
+    }
+    const ref = findSessionAmong(refs, id);
+    if (!ref) throw new Error(`session not found in --file path: ${id}`);
+    return ref;
+  }
+  if (!id) throw new Error("session id required (or pass --file <path>)");
+  const ref = await findSession(id, parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
   if (!ref) throw new Error(`session not found: ${id}`);
   return ref;
 }
