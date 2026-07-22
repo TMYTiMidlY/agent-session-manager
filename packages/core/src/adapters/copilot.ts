@@ -1,28 +1,111 @@
-import { basename, dirname, join } from "node:path";
+import { basename, dirname } from "node:path";
 import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail, ToolResultKind } from "../types.js";
 import { contentToText } from "../text.js";
 import { expandHome, readJsonl, walkFiles } from "../fs.js";
+import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
 
 const DEFAULT_ROOT = "~/.copilot/session-state";
+const DEFAULT_DB = "~/.copilot/session-store.db";
 
-export async function discoverCopilot(root = DEFAULT_ROOT): Promise<SessionRef[]> {
-  const files = await walkFiles(expandHome(root), (path) => basename(path) === "events.jsonl");
-  return files.map((path) => ({
-    agent: "copilot",
-    id: basename(dirname(path)),
-    path,
-  }));
+const HANDLED_EVENT_TYPES = new Set([
+  "session.start",
+  "user.message",
+  "assistant.message",
+  "tool.execution_start",
+  "tool.execution_complete",
+  "system.notification",
+  "session.info",
+  "abort",
+  "session.error",
+  "error",
+  "session.warning",
+  "warning",
+  "handoff",
+  "session.compaction_start",
+  "session.compaction_complete",
+  "compaction",
+  "session.task_complete",
+  "task_complete",
+  "subagent.started",
+  "subagent.selected",
+  "subagent.completed",
+  "subagent.failed",
+  "skill.invoked",
+  "session.plan_changed",
+]);
+
+const INTENTIONALLY_IGNORED_EVENT_TYPES = new Set([
+  "session.model_change",
+  "session.resume",
+  "session.shutdown",
+  "session.mode_changed",
+  "session.context_changed",
+  "session.workspace_file_changed",
+  "session.binary_asset",
+  "session.permissions_changed",
+  "session.schedule_created",
+  "session.schedule_cancelled",
+  "session.truncation",
+  "session.usage_checkpoint",
+  "hook.*",
+  "assistant.turn_*",
+  "system.message",
+]);
+
+export async function discoverCopilot(root = DEFAULT_ROOT, dbPath = DEFAULT_DB): Promise<SessionRef[]> {
+  const resolvedDbPath = expandHome(dbPath);
+  const [files, dbSessions] = await Promise.all([
+    walkFiles(expandHome(root), (path) => basename(path) === "events.jsonl"),
+    listCopilotDbSessions(resolvedDbPath),
+  ]);
+  const refs = new Map<string, SessionRef>();
+
+  for (const session of dbSessions) {
+    refs.set(session.id, {
+      agent: "copilot",
+      id: session.id,
+      path: resolvedDbPath,
+      cwd: session.cwd,
+      title: session.summary,
+      repository: session.repository,
+      branch: session.branch,
+      source: { kind: "db-turns", path: resolvedDbPath, lossy: true },
+    });
+  }
+
+  for (const path of files) {
+    const id = basename(dirname(path));
+    const dbRef = refs.get(id);
+    refs.set(id, {
+      ...dbRef,
+      agent: "copilot",
+      id,
+      path,
+      source: { kind: "events", path, lossy: false },
+    });
+  }
+
+  return [...refs.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
+  if (ref.source?.kind === "db-turns" || (basename(ref.path) === "session-store.db" && ref.source?.kind !== "events")) {
+    return parseCopilotDb(ref);
+  }
+
   const rows = await readJsonl(ref.path);
   const entries: TimelineEntry[] = [];
   let cwd = ref.cwd;
   let startedAt = ref.startedAt;
+  let updatedAt = ref.updatedAt;
   let title = ref.title;
+  let repository = ref.repository;
+  const branch = ref.branch;
+  const diagnosticCounts = { handled: 0, ignored: 0, unknown: 0 };
+  const unknownTypes = new Set<string>();
 
-  /** start events waiting for their matching complete event, keyed by callId */
-  const pendingStarts = new Map<string, { name?: string; args?: unknown; intentionSummary?: string; partialOutput?: string; timestamp?: string }>();
+  /** tool entries waiting for their matching complete event, keyed by callId */
+  const pendingTools = new Map<string, TimelineEntry>();
   /** subagent.started entries waiting for their subagent.completed stats, keyed by toolCallId */
   const pendingSubagents = new Map<string, TimelineEntry>();
   /** timestamp of the last session.compaction_start, to derive compaction duration */
@@ -40,12 +123,25 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     const data = (event.data ?? {}) as Record<string, unknown>;
     const type = String(event.type ?? "event");
     const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
+    updatedAt = timestamp ?? updatedAt;
+
+    if (isIntentionallyIgnoredEvent(type)) {
+      diagnosticCounts.ignored += 1;
+      continue;
+    }
+    if (!HANDLED_EVENT_TYPES.has(type)) {
+      diagnosticCounts.unknown += 1;
+      unknownTypes.add(type);
+      continue;
+    }
+    diagnosticCounts.handled += 1;
 
     if (type === "session.start") {
       const context = (data.context ?? {}) as Record<string, unknown>;
       cwd = typeof context.cwd === "string" ? context.cwd : cwd;
       startedAt = typeof data.startTime === "string" ? data.startTime : timestamp ?? startedAt;
-      title = typeof context.repository === "string" ? context.repository : title;
+      repository = typeof context.repository === "string" ? context.repository : repository;
+      title ??= repository;
       continue;
     }
 
@@ -78,42 +174,28 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
 
     if (type === "tool.execution_start") {
       const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
-      if (callId) {
-        pendingStarts.set(callId, {
-          name: typeof data.toolName === "string" ? data.toolName : undefined,
-          args: data.arguments,
-          intentionSummary: typeof data.intentionSummary === "string" ? data.intentionSummary : undefined,
-          partialOutput: typeof data.partialOutput === "string" ? data.partialOutput : undefined,
-          timestamp,
-        });
-      } else {
-        // orphan start (no callId): emit a tool entry now so it isn't lost
-        push(toolEntryFromStart(data, timestamp, type));
-      }
+      const entry = push(toolEntryFromStart(data, timestamp, type));
+      if (callId) pendingTools.set(callId, entry);
       continue;
     }
 
     if (type === "tool.execution_complete") {
       const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
-      const start = callId ? pendingStarts.get(callId) : undefined;
-      if (callId) pendingStarts.delete(callId);
-      const tool: ToolDetail = {
-        callId,
-        name: start?.name ?? (typeof data.toolName === "string" ? data.toolName : undefined),
-        arguments: start?.args ?? data.arguments,
-        intentionSummary: start?.intentionSummary ?? (typeof data.intentionSummary === "string" ? data.intentionSummary : undefined),
-        partialOutput: start?.partialOutput,
-        result: normaliseToolResult(data),
-      };
-      push({
-        role: "tool",
-        kind: "tool",
-        title: tool.name,
-        text: tool.result?.log ?? "",
-        timestamp: start?.timestamp ?? timestamp,
-        rawType: type,
-        tool,
-      });
+      const entry = (callId ? pendingTools.get(callId) : undefined)
+        ?? push(toolEntryFromStart(data, timestamp, type));
+      if (callId) pendingTools.delete(callId);
+
+      const tool = entry.tool ?? { result: { type: "pending" } };
+      tool.callId ??= callId;
+      tool.name ??= typeof data.toolName === "string" ? data.toolName : undefined;
+      tool.arguments ??= data.arguments;
+      tool.intentionSummary ??= typeof data.intentionSummary === "string" ? data.intentionSummary : undefined;
+      tool.partialOutput = partialOutput(data.partialOutput) ?? tool.partialOutput;
+      tool.result = normaliseToolResult(data);
+      entry.tool = tool;
+      entry.title = tool.name;
+      entry.text = tool.result?.log ?? "";
+      entry.rawType = type;
       continue;
     }
 
@@ -152,23 +234,34 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     }
 
     if (type === "session.error" || type === "error") {
+      const errorType = typeof data.errorType === "string" ? data.errorType : undefined;
+      const message = stringOrEmpty(data.message ?? data.content ?? data.error);
       push({
         role: "event",
         kind: "error",
-        text: stringOrEmpty(data.message ?? data.content ?? data.error),
+        text: typedEventText(errorType, message),
         timestamp,
         rawType: type,
+        detail: errorType,
+        data: {
+          errorType,
+          stack: typeof data.stack === "string" ? data.stack : undefined,
+        },
       });
       continue;
     }
 
     if (type === "session.warning" || type === "warning") {
+      const warningType = typeof data.warningType === "string" ? data.warningType : undefined;
+      const message = stringOrEmpty(data.message ?? data.content);
       push({
         role: "event",
         kind: "warning",
-        text: stringOrEmpty(data.message ?? data.content),
+        text: typedEventText(warningType, message),
         timestamp,
         rawType: type,
+        detail: warningType,
+        data: { warningType },
       });
       continue;
     }
@@ -310,37 +403,53 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       continue;
     }
 
-    // Intentionally dropped: hook.*, assistant.turn_*, system.message
-    // (system prompt is huge and noisy), session.model_change (we prefer
-    // the session.info(infoType=model) text version).
-  }
-
-  // any leftover orphan starts (complete event never arrived) — show them as pending tools
-  for (const [callId, start] of pendingStarts) {
-    push({
-      role: "tool",
-      kind: "tool",
-      title: start.name,
-      text: "",
-      timestamp: start.timestamp,
-      rawType: "tool.execution_start",
-      tool: {
-        callId,
-        name: start.name,
-        arguments: start.args,
-        intentionSummary: start.intentionSummary,
-        partialOutput: start.partialOutput,
-        result: { type: "pending" },
-      },
-    });
   }
 
   return {
     ...ref,
     startedAt,
-    updatedAt: entries.at(-1)?.timestamp,
+    updatedAt,
     cwd,
     title,
+    repository,
+    branch,
+    source: { kind: "events", path: ref.path, lossy: false },
+    diagnostics: {
+      ...diagnosticCounts,
+      unknownTypes: [...unknownTypes].sort(),
+    },
+    entries,
+  };
+}
+
+async function parseCopilotDb(ref: SessionRef): Promise<ParsedSession> {
+  const stored = await readCopilotDbSession(ref.path, ref.id);
+  const entries: TimelineEntry[] = [];
+
+  function push(role: "user" | "assistant", text: string, turnIndex: number): void {
+    if (!text.trim()) return;
+    entries.push({
+      index: entries.length,
+      role,
+      kind: "message",
+      text,
+      rawType: role === "user" ? "turns.user_message" : "turns.assistant_response",
+      data: { turnIndex },
+    });
+  }
+
+  for (const turn of stored?.turns ?? []) {
+    if (turn.userMessage) push("user", turn.userMessage, turn.turnIndex);
+    if (turn.assistantResponse) push("assistant", turn.assistantResponse, turn.turnIndex);
+  }
+
+  return {
+    ...ref,
+    cwd: stored?.session.cwd ?? ref.cwd,
+    title: stored?.session.summary ?? ref.title,
+    repository: stored?.session.repository ?? ref.repository,
+    branch: stored?.session.branch ?? ref.branch,
+    source: { kind: "db-turns", path: ref.path, lossy: true },
     entries,
   };
 }
@@ -352,6 +461,7 @@ function stringOrEmpty(value: unknown): string {
 }
 
 function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | undefined, rawType: string): Omit<TimelineEntry, "index"> {
+  const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
   const name = typeof data.toolName === "string" ? data.toolName : undefined;
   return {
     role: "tool",
@@ -361,9 +471,11 @@ function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | u
     timestamp,
     rawType,
     tool: {
+      callId,
       name,
       arguments: data.arguments,
       intentionSummary: typeof data.intentionSummary === "string" ? data.intentionSummary : undefined,
+      partialOutput: partialOutput(data.partialOutput),
       result: { type: "pending" },
     },
   };
@@ -371,38 +483,59 @@ function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | u
 
 function normaliseToolResult(data: Record<string, unknown>): ToolDetail["result"] {
   const success = data.success !== false;
-  if (!success && typeof data.error === "string") {
-    return { type: "failure", log: data.error };
-  }
   const raw = data.result;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const obj = raw as Record<string, unknown>;
-    let log: string | undefined;
-    const content = obj.content;
-    if (typeof content === "string") {
-      log = content;
-    } else if (Array.isArray(content)) {
-      log = content.map((chunk) => {
-        if (chunk && typeof chunk === "object" && "text" in chunk && typeof (chunk as { text?: unknown }).text === "string") {
-          return (chunk as { text: string }).text;
-        }
-        return contentToText(chunk);
-      }).join("\n");
-    } else if (Object.keys(obj).length > 0) {
-      log = contentToText(obj);
-    }
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : undefined;
+  const explicitType = toolResultKind(obj?.type);
+  const type = explicitType ?? (success ? "success" : "failure");
+  const error = !success ? data.error ?? obj?.error : undefined;
+  const logSource = error ?? obj?.content ?? obj?.detailedContent ?? (typeof raw === "string" ? raw : undefined);
+  let log = logSource === undefined ? undefined : stringOrEmpty(logSource);
+
+  if (log === undefined && obj && Object.keys(obj).some((key) => key !== "type" && key !== "markdown")) {
+    log = contentToText(obj);
+  }
+
+  if (obj) {
     return {
-      type: success ? "success" : "failure",
+      type,
       log,
       markdown: obj.markdown === true,
     };
   }
-  if (typeof raw === "string") {
-    return { type: success ? "success" : "failure", log: raw };
+  return { type, log };
+}
+
+function partialOutput(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  return stringOrEmpty(value);
+}
+
+function typedEventText(type: string | undefined, message: string): string {
+  if (!type) return message;
+  return message ? `[${type}] ${message}` : `[${type}]`;
+}
+
+function toolResultKind(value: unknown): ToolResultKind | undefined {
+  // No distinct rejected/denied event encoding has been observed. Preserve
+  // those states only when a completion explicitly supplies result.type.
+  if (value === "success" || value === "failure" || value === "rejected" || value === "denied" || value === "pending") {
+    return value;
   }
-  return { type: success ? "success" : "pending" };
+  return undefined;
+}
+
+function isIntentionallyIgnoredEvent(type: string): boolean {
+  return INTENTIONALLY_IGNORED_EVENT_TYPES.has(type)
+    || type.startsWith("hook.")
+    || type.startsWith("assistant.turn_");
 }
 
 export function copilotRoots(root?: string): string {
-  return root ?? join("~", ".copilot", "session-state");
+  return root ?? DEFAULT_ROOT;
+}
+
+export function copilotDbRoot(root?: string): string {
+  return root ?? DEFAULT_DB;
 }

@@ -2,6 +2,7 @@ export type AgentKind = "copilot" | "claude" | "codex";
 
 export interface AgentRoots {
   copilot?: string;
+  copilotDb?: string;
   claude?: string;
   codex?: string;
 }
@@ -68,6 +69,14 @@ export interface TimelineEntry {
 
 export interface ParsedSession extends SessionRef {
   entries: TimelineEntry[];
+  diagnostics?: ParseDiagnostics;
+}
+
+export interface ParseDiagnostics {
+  handled: number;
+  ignored: number;
+  unknown: number;
+  unknownTypes: string[];
 }
 
 export interface SearchHit {

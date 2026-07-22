@@ -52,5 +52,66 @@ describe("agent adapters", () => {
     expect(byKind.get("skill")?.title).toBe("dredge-up");
     expect(byKind.get("skill")?.data?.trigger).toBe("user");
     expect(byKind.get("task_complete")?.text).toContain("resolved");
+    expect(byKind.get("warning")).toMatchObject({
+      text: "[context] context is getting large",
+      detail: "context",
+      data: { warningType: "context" },
+    });
+    expect(byKind.get("error")).toMatchObject({
+      text: "[network] transient network error",
+      detail: "network",
+      data: {
+        errorType: "network",
+        stack: expect.stringContaining("at fetch"),
+      },
+    });
+  });
+
+  it("keeps tools at their start position and mutates lifecycle details in place", async () => {
+    const session = await parseCopilot({
+      agent: "copilot",
+      id: "core-tool-lifecycle",
+      path: resolve(root, "core-tool-lifecycle.events.jsonl"),
+    });
+    expect(session.entries.map((entry) => [entry.role, entry.tool?.callId, entry.text])).toEqual([
+      ["tool", "complete", "command finished"],
+      ["user", undefined, "message between tool start and completion"],
+      ["tool", "pending", ""],
+      ["user", undefined, "message after pending tool"],
+      ["tool", "failure", expect.stringContaining("\"code\": 7")],
+      ["tool", "explicit", "explicit failure result"],
+    ]);
+
+    const completed = session.entries[0];
+    expect(completed?.timestamp).toBe("2026-07-22T00:00:01.000Z");
+    expect(completed?.tool?.partialOutput).toBe("complete output");
+    expect(completed?.tool?.result?.type).toBe("success");
+
+    const pending = session.entries[2];
+    expect(pending?.tool?.partialOutput).toBe("pending output");
+    expect(pending?.tool?.result?.type).toBe("pending");
+
+    const failure = session.entries[4];
+    expect(failure?.tool?.result?.type).toBe("failure");
+    expect(failure?.tool?.result?.log).toContain("command failed");
+
+    const explicit = session.entries[5];
+    expect(explicit?.tool?.result?.type).toBe("failure");
+    expect(session.updatedAt).toBe("2026-07-22T00:00:09.000Z");
+  });
+
+  it("reports handled, intentionally ignored, and unknown Copilot event types", async () => {
+    const session = await parseCopilot({
+      agent: "copilot",
+      id: "core-copilot-diagnostics",
+      path: resolve(root, "core-copilot-diagnostics.events.jsonl"),
+    });
+    expect(session.diagnostics).toEqual({
+      handled: 2,
+      ignored: 5,
+      unknown: 2,
+      unknownTypes: ["future.event"],
+    });
+    expect(session.entries.map((entry) => entry.text)).toEqual(["known event"]);
   });
 });
