@@ -8,8 +8,10 @@ import { discoverCodex, parseCodex } from "./adapters/codex.js";
 import { discoverCopilot, parseCopilot } from "./adapters/copilot.js";
 import { excerpt, stringifyInline, timelineEntrySearchText } from "./text.js";
 import { expandHome, fileStem, parentName, pathExists, readJsonl, walkFiles } from "./fs.js";
+import { deriveProject } from "./project.js";
 
 export { timelineEntrySearchText };
+export { deriveProject };
 
 export const AGENTS: AgentKind[] = ["copilot", "claude", "codex"];
 
@@ -67,6 +69,39 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
     }
   }
   return hits;
+}
+
+/** A lightweight per-session summary used by project-grouped listings and index pages. */
+export interface SessionSummary {
+  ref: SessionRef;
+  project: string;
+  startedAt?: string;
+  updatedAt?: string;
+  entryCount: number;
+  firstUserMessage?: string;
+}
+
+/** Parse a session and reduce it to a {@link SessionSummary} (project, activity, counts). */
+export async function summarizeSession(ref: SessionRef): Promise<SessionSummary> {
+  const parsed = await parseSession(ref);
+  const firstUser = parsed.entries.find((entry) => entry.role === "user" && entry.text.trim() !== "");
+  return {
+    ref: {
+      ...ref,
+      cwd: parsed.cwd,
+      startedAt: parsed.startedAt,
+      updatedAt: parsed.updatedAt,
+      title: parsed.title,
+      repository: parsed.repository,
+      branch: parsed.branch,
+      source: parsed.source,
+    },
+    project: deriveProject(parsed.cwd),
+    startedAt: parsed.startedAt,
+    updatedAt: parsed.updatedAt,
+    entryCount: parsed.entries.length,
+    firstUserMessage: firstUser ? firstUser.text.slice(0, 200) : undefined,
+  };
 }
 
 const COPILOT_TYPES = new Set([

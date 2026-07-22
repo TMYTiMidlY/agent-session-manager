@@ -97,6 +97,19 @@ describe("recall cli", () => {
     expect(stdout).toContain("gamma");
   });
 
+  it("groups list output by project", async () => {
+    const { stdout } = await execFileAsync(tsx, [
+      cli,
+      "list",
+      "--by",
+      "project",
+      "--file",
+      resolve(repoRoot, "fixtures"),
+    ]);
+    expect(stdout).toMatch(/^# .+\(\d+\)$/m);
+    expect(stdout).toContain("codex");
+  });
+
   it("errors clearly when --file matches many sessions and no id is given", async () => {
     await expect(
       execFileAsync(tsx, [cli, "show", "--file", resolve(repoRoot, "fixtures")]),
