@@ -192,6 +192,9 @@ When it points at a directory that yields more than one session, pass a
 
 ## Backup setup
 
+> For what actually gets backed up (per-directory), the `rewind-snapshots` exclusion, the
+> end-to-end-encryption model, and the network architecture, see [`docs/backup.md`](docs/backup.md).
+
 Copy the template and fill in your own backend:
 
 ```bash
