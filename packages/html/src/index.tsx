@@ -33,6 +33,7 @@ const SHIKI_LANGS: Array<[string, () => Promise<{ default: unknown }>]> = [
   ["markdown", () => import("@shikijs/langs/markdown")],
   ["yaml", () => import("@shikijs/langs/yaml")],
   ["toml", () => import("@shikijs/langs/toml")],
+  ["sql", () => import("@shikijs/langs/sql")],
   ["rust", () => import("@shikijs/langs/rust")],
   ["go", () => import("@shikijs/langs/go")],
 ];
@@ -135,6 +136,7 @@ type FilterKey =
   | "assistant"
   | "tool"
   | "reasoning"
+  | "group"
   | "notification"
   | "handoff"
   | "compaction"
@@ -146,12 +148,10 @@ type FilterKey =
   | "warning"
   | "error"
   | "system";
-
 const PILL_ORDER: FilterKey[] = [
-  "summary", "user", "assistant", "tool", "reasoning",
-  "notification", "handoff", "compaction", "task_complete",
-  "subagent", "skill", "plan",
-  "info", "warning", "error", "system",
+  "user", "assistant", "tool", "reasoning",
+  "info", "warning", "error", "group", "notification", "handoff", "compaction", "task_complete",
+  "summary", "subagent", "skill", "plan", "system",
 ];
 
 interface PillDef {
@@ -167,6 +167,7 @@ const PILL_DEFS: Record<FilterKey, PillDef> = {
   assistant:     { key: "assistant",     label: "Copilot",  icon: "bot",           accent: "green" },
   tool:          { key: "tool",          label: "工具",     icon: "wrench",        accent: "violet" },
   reasoning:     { key: "reasoning",     label: "推理",     icon: "brain",         accent: "amber" },
+  group:         { key: "group",         label: "分组",     icon: "layers",        accent: "violet" },
   notification:  { key: "notification",  label: "通知",     icon: "bell",          accent: "sky" },
   handoff:       { key: "handoff",       label: "交接",     icon: "shuffle",       accent: "sky" },
   compaction:    { key: "compaction",    label: "压缩",     icon: "circle-dashed", accent: "sky" },
@@ -187,6 +188,7 @@ function entryFilterKey(entry: TimelineEntry): FilterKey {
   if (entry.role === "tool") return "tool";
   if (entry.role === "system") return "system";
   // event role: split by kind
+  if (entry.kind === "group") return "group";
   if (entry.kind === "notification") return "notification";
   if (entry.kind === "handoff") return "handoff";
   if (entry.kind === "compaction") return "compaction";
@@ -238,7 +240,7 @@ function Icon({ name, size = 16 }: { name: string; size?: number }) {
 function Report({ session, summary, sourceLabel }: { session: ParsedSession; summary?: string; sourceLabel?: string }) {
   const counts = countByFilter(session.entries, summary);
   const visiblePills = PILL_ORDER.filter((key) => counts[key] > 0);
-  const title = session.title ?? `${session.agent} session`;
+  const title = reportTitle(session);
   const sessionStart = session.startedAt;
   const showFallbackWarning = sourceLabel && sourceLabel !== "events.jsonl";
 
@@ -247,7 +249,7 @@ function Report({ session, summary, sourceLabel }: { session: ParsedSession; sum
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{`${session.agent} session ${session.id}`}</title>
+        <title>{title}</title>
         <style dangerouslySetInnerHTML={{ __html: `${katexCss()}\n${css}` }} />
       </head>
       <body>
@@ -299,8 +301,11 @@ function Report({ session, summary, sourceLabel }: { session: ParsedSession; sum
               <button type="button" id="collapse-all" title="全部折叠"><Icon name="fold-vertical" /></button>
               <button type="button" id="expand-all" title="全部展开"><Icon name="unfold-vertical" /></button>
               <button type="button" id="toggle-sidebar" title="切换侧栏" aria-pressed="true"><Icon name="rows-3" /></button>
-              <button type="button" id="toggle-compact" title="紧凑模式" aria-pressed="false"><Icon name="rows-3" /></button>
-              <button type="button" id="toggle-theme" title="切换主题"><Icon name="sun" /></button>
+              <button type="button" id="toggle-compact" title="切换显示密度" aria-label="切换显示密度" aria-pressed="false"><Icon name="rows-3" /></button>
+              <button type="button" id="toggle-theme" title="当前为深色主题" aria-label="切换主题" aria-pressed="true">
+                <span data-theme-icon="dark"><Icon name="moon" /></span>
+                <span data-theme-icon="light" hidden><Icon name="sun" /></span>
+              </button>
             </div>
           </div>
         </header>
@@ -359,7 +364,7 @@ function Entry({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: s
   if (entry.role === "event") return <EventCard entry={entry} sessionStart={sessionStart} />;
   if (entry.role === "user") return <SimpleEntry entry={entry} isMarkdown={false} icon="user" sessionStart={sessionStart} />;
   if (entry.role === "assistant") return <SimpleEntry entry={entry} isMarkdown icon="bot" sessionStart={sessionStart} />;
-  if (entry.role === "reasoning") return <SimpleEntry entry={entry} isMarkdown icon="brain" sessionStart={sessionStart} />;
+  if (entry.role === "reasoning") return <SimpleEntry entry={entry} isMarkdown={false} icon="brain" sessionStart={sessionStart} />;
   if (entry.role === "system") return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
   return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
 }
@@ -387,7 +392,7 @@ function SimpleEntry({ entry, isMarkdown, icon: iconName, sessionStart }: { entr
         <Icon name={iconName} />
         <span className="role">{PILL_DEFS[key].label}</span>
         <span className="snippet">{firstLine(entry.text)}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         {isMarkdown ? <Markdown text={entry.text} /> : <PreBlock text={entry.text} />}
@@ -411,10 +416,11 @@ function ToolCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?
         <code className="tool-name">{tool.name ?? "(unnamed)"}</code>
         {args && <span className="tool-args">{args}</span>}
         {tool.intentionSummary && <span className="snippet">{tool.intentionSummary}</span>}
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         <ToolArgsBlock name={tool.name} args={tool.arguments} hadInline={Boolean(args)} />
+        <ToolPartialOutput text={tool.partialOutput} />
         <ToolResult tool={tool} />
       </div>
     </details>
@@ -452,11 +458,22 @@ function ToolResult({ tool }: { tool: ToolDetail }) {
   return <pre className="plain">{log}</pre>;
 }
 
+function ToolPartialOutput({ text }: { text: string | undefined }) {
+  if (!text) return null;
+  return (
+    <details className="args-block partial-output" open={false}>
+      <summary>Partial Output</summary>
+      <pre className="plain">{text}</pre>
+    </details>
+  );
+}
+
 function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
   const kind = entry.kind;
   if (kind === "handoff") return <HandoffCard entry={entry} sessionStart={sessionStart} />;
-  if (kind === "compaction") return <SimpleEntry entry={entry} isMarkdown={false} icon="circle-dashed" sessionStart={sessionStart} />;
-  if (kind === "task_complete") return <SimpleEntry entry={entry} isMarkdown icon="circle-check-big" sessionStart={sessionStart} />;
+  if (kind === "compaction") return <CompactionCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "task_complete") return <TaskCompleteCard entry={entry} sessionStart={sessionStart} />;
+  if (kind === "group") return <GroupCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "subagent") return <SubagentCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "skill") return <SkillCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "plan") return <PlanCard entry={entry} sessionStart={sessionStart} />;
@@ -464,6 +481,113 @@ function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
   if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="alert-triangle" sessionStart={sessionStart} />;
   if (kind === "error") return <SimpleEntry entry={entry} isMarkdown={false} icon="x" sessionStart={sessionStart} />;
   return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
+}
+
+function CompactionCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const data = entry.data ?? {};
+  const success = data.success !== false;
+  const stats = compactionStats(data);
+  const label = success ? "压缩完成" : "压缩失败";
+  return (
+    <details
+      {...entryAttrs(entry, "compaction", success ? "compaction-success" : "compaction-failure")}
+      open={false}
+    >
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name={success ? "circle-dashed" : "alert-triangle"} />
+        <span className="role">{label}</span>
+        <span className="snippet">{stats || firstLine(entry.text)}</span>
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
+      </summary>
+      <div className="body">
+        {stats && <p className="entry-stats">{stats}</p>}
+        {entry.text && <div className="text-block">{entry.text}</div>}
+      </div>
+    </details>
+  );
+}
+
+function TaskCompleteCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const failed = entry.data?.isError === true;
+  const label = failed ? "任务失败" : "任务完成";
+  return (
+    <details
+      {...entryAttrs(entry, "task_complete", failed ? "task-complete-error" : "task-complete-success")}
+      open={defaultOpen(entry)}
+    >
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name={failed ? "circle-x" : "circle-check-big"} />
+        <span className="role">{label}</span>
+        <span className="snippet">{firstLine(entry.text)}</span>
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
+      </summary>
+      <div className="body">
+        <Markdown text={entry.text} />
+      </div>
+    </details>
+  );
+}
+
+function GroupCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const children = groupChildren(entry);
+  const title = (entry.title ?? firstLine(entry.text)) || "Group";
+  return (
+    <details {...entryAttrs(entry, "group")} open={false}>
+      <summary>
+        <span className="chevron">›</span>
+        <span className="badge">#{entry.index + 1}</span>
+        <Icon name="layers" />
+        <span className="role">分组</span>
+        <span className="snippet">{title}{children.length > 0 ? ` · ${children.length} entries` : ""}</span>
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
+      </summary>
+      <div className="body">
+        {entry.text && entry.text !== title && <PreBlock text={entry.text} />}
+        {children.length > 0 && (
+          <div className="group-children">
+            {children.map((child, index) => (
+              <GroupChild key={`${child.index}-${index}`} entry={child} sessionStart={sessionStart} />
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function GroupChild({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const key = entryFilterKey(entry);
+  const tool = entry.tool;
+  const args = tool ? renderArgsInline(tool.name, tool.arguments) : null;
+  const label = tool?.name ?? PILL_DEFS[key].label;
+  return (
+    <details className={`group-child group-child-${key}`} open={defaultOpen(entry)}>
+      <summary>
+        <Icon name={PILL_DEFS[key].icon} />
+        <span className="role">{label}</span>
+        {args && <span className="tool-args">{args}</span>}
+        <span className="snippet">{tool?.intentionSummary ?? firstLine(entry.title ?? entry.text)}</span>
+        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+      </summary>
+      <div className="body">
+        {tool ? (
+          <>
+            <ToolArgsBlock name={tool.name} args={tool.arguments} hadInline={Boolean(args)} />
+            <ToolPartialOutput text={tool.partialOutput} />
+            <ToolResult tool={tool} />
+          </>
+        ) : entry.role === "assistant" ? (
+          <Markdown text={entry.text} />
+        ) : (
+          <PreBlock text={entry.text} />
+        )}
+      </div>
+    </details>
+  );
 }
 
 function SubagentCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
@@ -485,7 +609,7 @@ function SubagentCard({ entry, sessionStart }: { entry: TimelineEntry; sessionSt
         <Icon name="users" />
         <span className="role">子代理</span>
         <span className="snippet">{meta ? `${name} — ${meta}` : name}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         {entry.text && <p>{entry.text}</p>}
@@ -500,6 +624,7 @@ function SkillCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
   const data = entry.data ?? {};
   const name = entry.title ?? "skill";
   const source = typeof data.source === "string" ? data.source : undefined;
+  const trigger = typeof data.trigger === "string" ? data.trigger : undefined;
   return (
     <details {...entryAttrs(entry, "skill")} open={false}>
       <summary>
@@ -508,10 +633,15 @@ function SkillCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
         <Icon name="sparkles" />
         <span className="role">技能</span>
         <span className="snippet">{source ? `${name} (${source})` : name}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         {entry.text && <p>{entry.text}</p>}
+        {(source || trigger) && (
+          <p className="entry-stats">
+            {[source ? `Source: ${source}` : "", trigger ? `Trigger: ${trigger}` : ""].filter(Boolean).join(" · ")}
+          </p>
+        )}
       </div>
     </details>
   );
@@ -526,7 +656,7 @@ function PlanCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?
         <Icon name="list-checks" />
         <span className="role">计划</span>
         <span className="snippet">{firstLine(entry.text)}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         <PreBlock text={entry.text} />
@@ -542,14 +672,14 @@ function HandoffCard({ entry, sessionStart }: { entry: TimelineEntry; sessionSta
     ? `${repo.owner}/${repo.name}${repo.branch ? ` (${repo.branch})` : ""}`
     : "(unknown)";
   return (
-    <details {...entryAttrs(entry, "handoff")} open>
+    <details {...entryAttrs(entry, "handoff")} open={false}>
       <summary>
         <span className="chevron">›</span>
         <span className="badge">#{entry.index + 1}</span>
         <Icon name="shuffle" />
         <span className="role">交接</span>
         <span className="snippet">{repoLabel}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         <p><strong>Repository:</strong> {repoLabel}</p>
@@ -560,6 +690,10 @@ function HandoffCard({ entry, sessionStart }: { entry: TimelineEntry; sessionSta
 }
 
 function NotificationCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  const kindPayload = entry.data?.kind;
+  const detail = kindPayload && typeof kindPayload === "object"
+    ? stringifyValue(kindPayload)
+    : entry.detail;
   return (
     <details {...entryAttrs(entry, "notification")} open={false}>
       <summary>
@@ -568,14 +702,14 @@ function NotificationCard({ entry, sessionStart }: { entry: TimelineEntry; sessi
         <Icon name="bell" />
         <span className="role">通知</span>
         <span className="snippet">{firstLine(entry.text)}</span>
-        {entry.timestamp && <time>{formatTime(entry.timestamp, sessionStart)}</time>}
+        <TimestampLink entry={entry} sessionStart={sessionStart} />
       </summary>
       <div className="body">
         <PreBlock text={entry.text} />
-        {entry.detail && (
+        {detail && (
           <details className="args-block" open={false}>
-            <summary>Detail</summary>
-            <pre className="plain">{entry.detail}</pre>
+            <summary>Notification Detail</summary>
+            <pre className="plain">{detail}</pre>
           </details>
         )}
       </div>
@@ -585,7 +719,7 @@ function NotificationCard({ entry, sessionStart }: { entry: TimelineEntry; sessi
 
 function SummaryCard({ html }: { html: string }) {
   return (
-    <details id="entry-summary" className="entry summary" data-filter="summary" data-text={`summary agent ${htmlToSearchText(html)}`.toLowerCase()} open>
+    <details id="entry-summary" className="entry summary" data-index="summary" data-filter="summary" data-text={`summary agent ${htmlToSearchText(html)}`.toLowerCase()} open>
       <summary>
         <span className="chevron">›</span>
         <span className="badge">★</span>
@@ -594,6 +728,16 @@ function SummaryCard({ html }: { html: string }) {
       </summary>
       <div className="body markdown" dangerouslySetInnerHTML={{ __html: html }} />
     </details>
+  );
+}
+
+function TimestampLink({ entry, sessionStart }: { entry: TimelineEntry; sessionStart?: string }) {
+  if (!entry.timestamp) return null;
+  return (
+    <a className="timestamp-link" href={`#entry-${entry.index}`} title="Permalink to this entry">
+      <time dateTime={entry.timestamp}>{formatTime(entry.timestamp, sessionStart)}</time>
+      <Icon name="link" size={12} />
+    </a>
   );
 }
 
@@ -606,8 +750,70 @@ function entryAttrs(entry: TimelineEntry, key: FilterKey, extraClass = "") {
     "data-filter": key,
     "data-role": entry.role,
     "data-kind": entry.kind,
-    "data-text": `${entry.role} ${entry.kind} ${entry.title ?? ""} ${entry.text}`.toLowerCase(),
+    "data-text": entrySearchText(entry),
   };
+}
+
+function entrySearchText(entry: TimelineEntry): string {
+  const tool = entry.tool;
+  return [
+    entry.role,
+    entry.kind,
+    entry.rawType,
+    entry.timestamp,
+    entry.title,
+    entry.text,
+    entry.detail,
+    stringifyValue(entry.data),
+    tool?.callId,
+    tool?.name,
+    tool?.intentionSummary,
+    stringifyValue(tool?.arguments),
+    tool?.partialOutput,
+    tool?.result?.type,
+    tool?.result?.log,
+  ].filter((value): value is string => Boolean(value)).join(" ").toLowerCase();
+}
+
+function stringifyValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function compactionStats(data: Record<string, unknown>): string {
+  const bits: string[] = [];
+  if (typeof data.preTokens === "number" && Number.isFinite(data.preTokens)) {
+    bits.push(`${data.preTokens} tokens`);
+  }
+  if (typeof data.preMessages === "number" && Number.isFinite(data.preMessages)) {
+    bits.push(`${data.preMessages} messages`);
+  }
+  if (typeof data.durationMs === "number" && Number.isFinite(data.durationMs)) {
+    bits.push(`${(data.durationMs / 1000).toFixed(1)}s`);
+  }
+  if (typeof data.model === "string" && data.model) bits.push(data.model);
+  if (typeof data.checkpointNumber === "number" && Number.isFinite(data.checkpointNumber)) {
+    bits.push(`checkpoint #${data.checkpointNumber}`);
+  }
+  return bits.join(" · ");
+}
+
+function groupChildren(entry: TimelineEntry): TimelineEntry[] {
+  const raw = entry.data?.children ?? entry.data?.entries;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is TimelineEntry => {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as Partial<TimelineEntry>;
+    return typeof candidate.index === "number"
+      && typeof candidate.role === "string"
+      && typeof candidate.kind === "string"
+      && typeof candidate.text === "string";
+  });
 }
 
 function renderArgsInline(name: string | undefined, args: unknown): string | null {
@@ -705,6 +911,16 @@ function countByFilter(entries: TimelineEntry[], summary: string | undefined): R
   return counts;
 }
 
+function reportTitle(session: ParsedSession): string {
+  const explicit = session.title?.trim();
+  if (explicit) return explicit;
+  const firstUser = session.entries.find((entry) => entry.role === "user" && entry.text.trim());
+  if (firstUser) return firstLine(firstUser.text);
+  const repository = session.repository?.trim();
+  if (repository) return repository;
+  return `${session.agent} session`;
+}
+
 function firstLine(text: string): string {
   const line = (text ?? "").split("\n").find((item) => item.trim())?.trim() ?? "";
   return line.length > 100 ? `${line.slice(0, 100)}…` : line;
@@ -797,6 +1013,74 @@ const clientScript = String.raw`
   const $ = (id) => document.getElementById(id);
   const entries = () => [...document.querySelectorAll('.entry')];
   const navLinks = () => [...document.querySelectorAll('#sidebar a')];
+  let focusedEntry = null;
+  let scrollFrame = 0;
+
+  function clearHighlights() {
+    document.querySelectorAll('mark.search-match').forEach((mark) => {
+      const parent = mark.parentNode;
+      mark.replaceWith(document.createTextNode(mark.textContent || ''));
+      parent?.normalize();
+    });
+  }
+
+  function highlightText(node, query) {
+    const text = node.nodeValue || '';
+    const lower = text.toLowerCase();
+    if (!lower.includes(query)) return;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let match = lower.indexOf(query);
+    while (match !== -1) {
+      fragment.append(text.slice(cursor, match));
+      const mark = document.createElement('mark');
+      mark.className = 'search-match';
+      mark.textContent = text.slice(match, match + query.length);
+      fragment.append(mark);
+      cursor = match + query.length;
+      match = lower.indexOf(query, cursor);
+    }
+    fragment.append(text.slice(cursor));
+    node.replaceWith(fragment);
+  }
+
+  function highlightMatches(query) {
+    clearHighlights();
+    if (!query) return;
+    entries().filter((entry) => !entry.hidden).forEach((entry) => {
+      const walker = document.createTreeWalker(entry, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent || parent.closest('script, style, mark.search-match, .icon')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return (node.nodeValue || '').toLowerCase().includes(query)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
+        },
+      });
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach((node) => highlightText(node, query));
+    });
+  }
+
+  function setActiveNav(id) {
+    navLinks().forEach((link) => {
+      const active = link.getAttribute('href') === '#' + id;
+      link.classList.toggle('active', active);
+      if (active) link.setAttribute('aria-current', 'true');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  function syncActiveNav() {
+    const visible = entries().filter((entry) => !entry.hidden);
+    if (visible.length === 0) return;
+    const y = window.scrollY + 150;
+    const active = visible.filter((entry) => entry.offsetTop <= y).at(-1) || visible[0];
+    if (active) setActiveNav(active.id);
+  }
 
   function applyFilters() {
     const q = ($('search')?.value || '').trim().toLowerCase();
@@ -810,9 +1094,42 @@ const clientScript = String.raw`
       const target = document.querySelector(link.getAttribute('href'));
       link.hidden = !target || target.hidden;
     });
+    if (focusedEntry?.hidden) {
+      focusedEntry.classList.remove('keyboard-focus');
+      focusedEntry = null;
+    }
+    highlightMatches(q);
+    syncActiveNav();
   }
 
   function setAll(open) { entries().forEach((entry) => { if (!entry.hidden) entry.open = open; }); }
+
+  function focusEntry(entry, scroll = true) {
+    if (!entry || entry.hidden) return;
+    focusedEntry?.classList.remove('keyboard-focus');
+    focusedEntry = entry;
+    entry.classList.add('keyboard-focus');
+    entry.focus({ preventScroll: true });
+    if (scroll) entry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setActiveNav(entry.id);
+  }
+
+  function moveEntry(direction) {
+    const visible = entries().filter((entry) => !entry.hidden);
+    if (visible.length === 0) return;
+    const current = focusedEntry ? visible.indexOf(focusedEntry) : -1;
+    let next;
+    if (current >= 0) {
+      next = Math.max(0, Math.min(visible.length - 1, current + direction));
+    } else {
+      const y = window.scrollY + 150;
+      const ahead = visible.findIndex((entry) => entry.offsetTop >= y);
+      next = direction > 0
+        ? (ahead < 0 ? visible.length - 1 : ahead)
+        : Math.max(0, (ahead < 0 ? visible.length : ahead) - 1);
+    }
+    focusEntry(visible[next]);
+  }
 
   function jumpUser(dir) {
     const users = entries().filter((entry) => entry.dataset.filter === 'user' && !entry.hidden);
@@ -825,9 +1142,28 @@ const clientScript = String.raw`
 
   $('search')?.addEventListener('input', applyFilters);
   document.addEventListener('keydown', (event) => {
-    if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName || '')) {
+    const activeTag = document.activeElement?.tagName || '';
+    const isInteractive = ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(activeTag)
+      || document.activeElement?.isContentEditable;
+    if (event.key === '/' && !isInteractive) {
       event.preventDefault();
       $('search')?.focus();
+      return;
+    }
+    if (event.key === 'Escape' && $('search')?.value) {
+      event.preventDefault();
+      $('search').value = '';
+      applyFilters();
+      return;
+    }
+    if (!event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !isInteractive) {
+      if (event.key === 'j' || event.key === 'k') {
+        event.preventDefault();
+        moveEntry(event.key === 'j' ? 1 : -1);
+      } else if (event.key === 'Enter' && focusedEntry) {
+        event.preventDefault();
+        focusedEntry.open = !focusedEntry.open;
+      }
     }
   });
   document.querySelectorAll('.filter').forEach((button) => {
@@ -853,10 +1189,27 @@ const clientScript = String.raw`
     if (el) el.setAttribute('aria-pressed', String(nextCompact));
     localStorage.setItem('agent-session-exporter-compact', nextCompact ? '1' : '0');
   });
+
+  function syncThemeControl(isDark) {
+    const button = $('toggle-theme');
+    if (!button) return;
+    button.setAttribute('aria-pressed', String(isDark));
+    button.setAttribute('title', isDark ? '当前为深色主题' : '当前为浅色主题');
+    const darkIcon = button.querySelector('[data-theme-icon="dark"]');
+    const lightIcon = button.querySelector('[data-theme-icon="light"]');
+    if (darkIcon) darkIcon.hidden = !isDark;
+    if (lightIcon) lightIcon.hidden = isDark;
+  }
+
+  function setTheme(isDark) {
+    document.documentElement.classList.toggle('dark', isDark);
+    document.documentElement.classList.toggle('light', !isDark);
+    syncThemeControl(isDark);
+  }
+
   $('toggle-theme')?.addEventListener('click', () => {
     const nextDark = !document.documentElement.classList.contains('dark');
-    document.documentElement.classList.toggle('dark', nextDark);
-    document.documentElement.classList.toggle('light', !nextDark);
+    setTheme(nextDark);
     localStorage.setItem('agent-session-exporter-theme', nextDark ? 'dark' : 'light');
   });
   if (localStorage.getItem('agent-session-exporter-compact') === '1') {
@@ -864,8 +1217,54 @@ const clientScript = String.raw`
     $('toggle-compact')?.setAttribute('aria-pressed', 'true');
   }
   const savedTheme = localStorage.getItem('agent-session-exporter-theme');
-  if (savedTheme === 'light') { document.documentElement.classList.remove('dark'); document.documentElement.classList.add('light'); }
+  setTheme(savedTheme !== 'light');
+
+  entries().forEach((entry) => {
+    entry.tabIndex = -1;
+    entry.addEventListener('click', () => {
+      if (!entry.hidden) focusEntry(entry, false);
+    });
+  });
+  navLinks().forEach((link) => {
+    link.addEventListener('click', () => {
+      const target = document.querySelector(link.getAttribute('href'));
+      if (target?.matches('details.entry')) {
+        target.open = true;
+        focusEntry(target, false);
+      }
+    });
+  });
+  document.querySelectorAll('.timestamp-link').forEach((link) => {
+    link.addEventListener('click', (event) => event.stopPropagation());
+  });
+
+  function expandHashTarget() {
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    if (!id) return;
+    const target = $(id);
+    if (target?.matches('details.entry')) {
+      target.open = true;
+      focusEntry(target, false);
+    }
+  }
+
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(() => syncActiveNav(), {
+      rootMargin: '-120px 0px -65% 0px',
+      threshold: [0, 1],
+    });
+    entries().forEach((entry) => observer.observe(entry));
+  }
+  window.addEventListener('scroll', () => {
+    if (scrollFrame) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = 0;
+      syncActiveNav();
+    });
+  }, { passive: true });
+  window.addEventListener('hashchange', expandHashTarget);
   applyFilters();
+  expandHashTarget();
 })();
 `;
 
@@ -914,9 +1313,11 @@ body.no-sidebar .layout { grid-template-columns:1fr; } body.no-sidebar #sidebar 
 #sidebar nav { display:flex; flex-direction:column; gap:4px; }
 #sidebar a { display:grid; grid-template-columns:auto auto minmax(0, 1fr); gap:6px; padding:5px 8px; color:var(--muted); text-decoration:none; border-radius:8px; font-size:13px; }
 #sidebar a:hover { background:var(--panel); color:var(--text); }
+#sidebar a.active { background:var(--panel2); color:var(--text); }
 #sidebar em { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-style:normal; }
 main { min-width:0; }
 .entry { scroll-margin-top:130px; margin:0 0 12px; background:var(--panel); border:1px solid var(--border); border-left-width:3px; border-radius:12px; overflow:hidden; }
+.entry.keyboard-focus { outline:2px solid color-mix(in srgb, var(--blue) 70%, transparent); outline-offset:3px; }
 .entry.user { border-left-color:var(--blue); }
 .entry.assistant { border-left-color:var(--green); }
 .entry.reasoning { border-left-color:var(--amber); }
@@ -926,10 +1327,13 @@ main { min-width:0; }
 .entry.tool.tool-rejected { border-left-color:var(--gray); }
 .entry.tool.tool-denied { border-left-color:var(--amber); }
 .entry.tool.tool-pending { border-left-color:var(--blue); }
+.entry.group { border-left-color:var(--violet); }
 .entry.notification { border-left-color:var(--sky); }
 .entry.handoff { border-left-color:var(--sky); }
 .entry.compaction { border-left-color:var(--gray); }
+.entry.compaction.compaction-failure { border-left-color:var(--red); }
 .entry.task_complete { border-left-color:var(--emerald); }
+.entry.task_complete.task-complete-error { border-left-color:var(--red); }
 .entry.info { border-left-color:var(--sky); }
 .entry.warning { border-left-color:var(--amber); }
 .entry.error { border-left-color:var(--rose); }
@@ -943,7 +1347,9 @@ main { min-width:0; }
 .role { font-weight:700; }
 .entry.user .role { color:var(--blue); } .entry.assistant .role { color:var(--green); }
 .entry.reasoning .role { color:var(--amber); } .entry.notification .role { color:var(--sky); }
-.entry.handoff .role { color:var(--sky); } .entry.task_complete .role { color:var(--emerald); }
+.entry.group .role { color:var(--violet); } .entry.handoff .role { color:var(--sky); }
+.entry.task_complete .role { color:var(--emerald); } .entry.task_complete.task-complete-error .role { color:var(--red); }
+.entry.compaction.compaction-failure .role { color:var(--red); }
 .entry.summary .role { color:var(--amber); }
 .tool-name { color:var(--violet); font-weight:600; padding:0 4px; border:1px solid var(--border); border-radius:6px; background:var(--code); font-size:13px; }
 .tool-status { display:inline-flex; align-items:center; justify-content:center; width:18px; }
@@ -955,8 +1361,20 @@ main { min-width:0; }
 .tool-args { color:var(--muted); font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:520px; }
 .snippet { min-width:0; flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; color:var(--muted); font-size:13px; }
 time { color:var(--muted); font-size:12px; }
+.timestamp-link { display:inline-flex; align-items:center; gap:4px; color:var(--muted); text-decoration:none; }
+.timestamp-link .icon { opacity:0; transition:opacity .15s ease; }
+.timestamp-link:hover .icon, .timestamp-link:focus-visible .icon { opacity:1; }
 .body { border-top:1px solid var(--border); padding:13px; }
 .plain, .markdown pre { margin:0; white-space:pre-wrap; word-break:break-word; overflow:auto; border:1px solid var(--border); border-radius:10px; background:var(--code); padding:12px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.text-block { white-space:pre-wrap; overflow-wrap:anywhere; border:1px solid var(--border); border-radius:10px; background:var(--code); padding:12px; }
+.entry-stats { margin:0 0 10px; color:var(--muted); font-size:13px; }
+.partial-output + .plain, .partial-output + .markdown { margin-top:10px; }
+.group-children { display:flex; flex-direction:column; gap:9px; }
+.group-child { border:1px solid var(--border); border-radius:10px; background:var(--bg); overflow:hidden; }
+.group-child > summary { display:flex; align-items:center; gap:8px; padding:8px 10px; cursor:pointer; list-style:none; }
+.group-child > summary::-webkit-details-marker { display:none; }
+.group-child > .body { padding:10px; }
+mark.search-match { background:#f8e16c; color:#111; border-radius:2px; padding:0 .08em; }
 /* Shiki-highlighted blocks: keep the border + radius our other pres have, and swap fg/bg with the CSS variables the theme toggle drives. */
 .shiki { margin:0; border:1px solid var(--border); border-radius:10px; padding:12px; font:13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:auto; }
 html:not(.dark) .shiki { background-color: var(--shiki-light-bg, #ffffff); color: var(--shiki-light, inherit); }
