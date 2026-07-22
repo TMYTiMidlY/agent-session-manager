@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { HighlighterCore, LanguageInput, ThemeInput } from "@shikijs/types";
 import type { ParsedSession, TimelineEntry, ToolDetail, ToolResultKind } from "@agent-session-manager/core";
+import { LOSSY_SOURCE_WARNING } from "@agent-session-manager/core";
 
 const require = createRequire(import.meta.url);
 
@@ -270,8 +271,7 @@ function Report({ session, summary, sourceLabel }: { session: ParsedSession; sum
               <span>{session.entries.length} entries</span>
               {showFallbackWarning && (
                 <span className="fallback-warning" title="Data source is not the canonical events.jsonl">
-                  ⚠ 数据源回退到 {sourceLabel}
-                  {sourceLabel?.startsWith("db.turns") && "（交互式用户决策与工具条目在此模式下不可恢复）"}
+                  ⚠ {LOSSY_SOURCE_WARNING}
                 </span>
               )}
             </div>

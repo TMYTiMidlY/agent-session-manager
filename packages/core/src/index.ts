@@ -2,7 +2,7 @@ export * from "./types.js";
 
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, TimelineEntry } from "./types.js";
+import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, SessionSource, TimelineEntry } from "./types.js";
 import { discoverClaude, parseClaude } from "./adapters/claude.js";
 import { discoverCodex, parseCodex } from "./adapters/codex.js";
 import { discoverCopilot, parseCopilot } from "./adapters/copilot.js";
@@ -192,6 +192,20 @@ export async function discoverPath(path: string, agentOverride?: AgentKind): Pro
   return refs.sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
 }
 
+/**
+ * Human-readable caveat shown whenever a parsed session came from a lossy
+ * source (Copilot's `db-turns` fallback): only user/assistant text survives, so
+ * tool calls and ask_user decisions are gone. Shared verbatim by the text,
+ * dialogue, Markdown, and HTML renderers so the warning reads identically
+ * across every output.
+ */
+export const LOSSY_SOURCE_WARNING =
+  "数据源回退到 db.turns (fallback) —— 交互式用户决策与工具条目在此模式下不可恢复";
+
+export function lossySourceWarning(source: SessionSource | undefined): string | undefined {
+  return source && (source.lossy || source.kind === "db-turns") ? LOSSY_SOURCE_WARNING : undefined;
+}
+
 export function sessionToText(session: ParsedSession): string {
   return renderSessionText(session, session.entries);
 }
@@ -211,11 +225,13 @@ export function sessionToDialogue(session: ParsedSession): string {
 }
 
 function renderSessionText(session: ParsedSession, entries: TimelineEntry[], includeEntryTitles = true): string {
+  const warning = lossySourceWarning(session.source);
   const header = [
     `session: ${session.id}`,
     `agent: ${session.agent}`,
     session.cwd ? `cwd: ${session.cwd}` : undefined,
     session.startedAt ? `started: ${session.startedAt}` : undefined,
+    warning ? `warning: ${warning}` : undefined,
     "",
   ].filter((line) => line !== undefined).join("\n");
   const body = entries.map((entry) => {

@@ -88,6 +88,26 @@ describe("sessionToText", () => {
     expect(text).not.toContain("REASONING NOISE");
     expect(text).not.toContain("NOTIFICATION NOISE");
   });
+
+  it("flags a lossy db-turns source in text and dialogue output", () => {
+    const lossy: ParsedSession = {
+      agent: "copilot",
+      id: "lossy",
+      path: "session-store.db",
+      source: { kind: "db-turns", path: "session-store.db", lossy: true },
+      entries: [{ index: 0, role: "user", kind: "message", text: "hi" }],
+    };
+    const canonical: ParsedSession = {
+      agent: "copilot",
+      id: "canon",
+      path: "events.jsonl",
+      source: { kind: "events", path: "events.jsonl", lossy: false },
+      entries: [{ index: 0, role: "user", kind: "message", text: "hi" }],
+    };
+    expect(sessionToText(lossy)).toContain("交互式用户决策与工具条目在此模式下不可恢复");
+    expect(sessionToDialogue(lossy)).toContain("交互式用户决策与工具条目在此模式下不可恢复");
+    expect(sessionToText(canonical)).not.toContain("db.turns");
+  });
 });
 
 describe("timeline search text", () => {

@@ -12,6 +12,7 @@
  * picking a header title.
  */
 import type { ParsedSession, TimelineEntry, ToolDetail, ToolResultKind } from "@agent-session-manager/core";
+import { LOSSY_SOURCE_WARNING } from "@agent-session-manager/core";
 
 export interface RenderMarkdownOptions {
   /** Include reasoning entries (default true, mirroring `/share file`). */
@@ -35,7 +36,7 @@ export function renderSessionMarkdown(session: ParsedSession, opts: RenderMarkdo
 
   const visible = session.entries.filter((entry) => includeReasoning || entry.role !== "reasoning");
   const sourceNote = opts.sourceLabel && opts.sourceLabel !== "events.jsonl"
-    ? `\n> [!WARNING]\n> Data source fallback: **${escapeMd(opts.sourceLabel)}**; this export may be lossy.\n`
+    ? `\n> [!WARNING]\n> ${LOSSY_SOURCE_WARNING}\n`
     : "";
 
   const header =
