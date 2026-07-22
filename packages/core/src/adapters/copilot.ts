@@ -23,9 +23,15 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
 
   /** start events waiting for their matching complete event, keyed by callId */
   const pendingStarts = new Map<string, { name?: string; args?: unknown; intentionSummary?: string; partialOutput?: string; timestamp?: string }>();
+  /** subagent.started entries waiting for their subagent.completed stats, keyed by toolCallId */
+  const pendingSubagents = new Map<string, TimelineEntry>();
+  /** timestamp of the last session.compaction_start, to derive compaction duration */
+  let pendingCompactionStart: string | undefined;
 
-  function push(entry: Omit<TimelineEntry, "index">) {
-    entries.push({ index: entries.length, ...entry });
+  function push(entry: Omit<TimelineEntry, "index">): TimelineEntry {
+    const full: TimelineEntry = { index: entries.length, ...entry };
+    entries.push(full);
+    return full;
   }
 
   for (const row of rows) {
@@ -145,7 +151,7 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       continue;
     }
 
-    if (type === "error") {
+    if (type === "session.error" || type === "error") {
       push({
         role: "event",
         kind: "error",
@@ -156,7 +162,7 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       continue;
     }
 
-    if (type === "warning") {
+    if (type === "session.warning" || type === "warning") {
       push({
         role: "event",
         kind: "warning",
@@ -179,26 +185,119 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       continue;
     }
 
-    if (type === "compaction") {
-      push({
-        role: "event",
-        kind: "compaction",
-        text: "Conversation compacted",
-        timestamp,
-        rawType: type,
-        data,
-      });
+    if (type === "session.compaction_start") {
+      // The start event carries only pre-compaction token counts; the summary
+      // lands on the matching complete event. Stash the ts for duration.
+      pendingCompactionStart = timestamp;
       continue;
     }
 
-    if (type === "task_complete") {
+    if (type === "session.compaction_complete" || type === "compaction") {
+      // A compaction trims the in-context window; events.jsonl is append-only
+      // so every pre-compaction turn still survives above this marker. The
+      // entry carries `summaryContent` — the recap seeded into the fresh window.
+      let durationSec: number | undefined;
+      if (timestamp && pendingCompactionStart) {
+        durationSec = Math.round((Date.parse(timestamp) - Date.parse(pendingCompactionStart)) / 1000);
+      }
+      push({
+        role: "event",
+        kind: "compaction",
+        text: stringOrEmpty(data.summaryContent) || "Conversation compacted",
+        timestamp,
+        rawType: type,
+        data: {
+          success: data.success !== false,
+          preTokens: data.preCompactionTokens,
+          postTokens: data.postCompactionTokens,
+          messagesRemoved: data.messagesRemoved,
+          tokensRemoved: data.tokensRemoved,
+          durationSec,
+        },
+      });
+      pendingCompactionStart = undefined;
+      continue;
+    }
+
+    if (type === "session.task_complete" || type === "task_complete") {
       push({
         role: "event",
         kind: "task_complete",
         text: stringOrEmpty(data.content ?? data.summary),
         timestamp,
         rawType: type,
-        data,
+        data: { isError: data.success === false },
+      });
+      continue;
+    }
+
+    if (type === "subagent.started" || type === "subagent.selected") {
+      const displayName = typeof data.agentDisplayName === "string" ? data.agentDisplayName : undefined;
+      const name = typeof data.agentName === "string" ? data.agentName : undefined;
+      const entry = push({
+        role: "event",
+        kind: "subagent",
+        title: displayName ?? name,
+        text: stringOrEmpty(data.agentDescription),
+        timestamp,
+        rawType: type,
+        data: {
+          agentName: name,
+          agentDisplayName: displayName,
+          description: typeof data.agentDescription === "string" ? data.agentDescription : undefined,
+          model: data.model,
+        },
+      });
+      const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
+      if (callId) pendingSubagents.set(callId, entry);
+      continue;
+    }
+
+    if (type === "subagent.completed" || type === "subagent.failed") {
+      const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
+      const target = callId ? pendingSubagents.get(callId) : undefined;
+      if (callId) pendingSubagents.delete(callId);
+      if (target) {
+        target.data = {
+          ...target.data,
+          durationMs: data.durationMs,
+          totalTokens: data.totalTokens,
+          totalToolCalls: data.totalToolCalls,
+          failed: type === "subagent.failed" || data.success === false,
+        };
+      }
+      continue;
+    }
+
+    if (type === "skill.invoked") {
+      const name = typeof data.name === "string" ? data.name : undefined;
+      push({
+        role: "event",
+        kind: "skill",
+        title: name,
+        text: stringOrEmpty(data.description),
+        timestamp,
+        rawType: type,
+        data: {
+          name,
+          description: typeof data.description === "string" ? data.description : undefined,
+          source: data.source,
+          trigger: data.trigger,
+        },
+      });
+      continue;
+    }
+
+    if (type === "session.plan_changed") {
+      const operation = data.operation;
+      const opLabel = typeof operation === "string" ? operation : undefined;
+      push({
+        role: "event",
+        kind: "plan",
+        text: opLabel ? `Plan ${opLabel}` : "Plan updated",
+        timestamp,
+        rawType: type,
+        data: { operation },
       });
       continue;
     }

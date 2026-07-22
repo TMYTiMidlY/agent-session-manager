@@ -27,4 +27,25 @@ describe("agent adapters", () => {
     expect(session.entries.map((entry) => entry.role)).toEqual(["user", "assistant"]);
     expect(session.entries[1]?.text).toContain("gamma");
   });
+
+  it("maps raw Copilot event names to entries the dredge-up script renders", async () => {
+    const session = await parseCopilot({ agent: "copilot", id: "copilot-rich", path: resolve(root, "copilot-rich.events.jsonl") });
+    const byKind = new Map(session.entries.map((entry) => [entry.kind, entry]));
+    // these were silently dropped before (wrong raw type strings / no handler)
+    for (const kind of ["skill", "subagent", "plan", "warning", "compaction", "error", "task_complete"]) {
+      expect(byKind.has(kind), `missing kind: ${kind}`).toBe(true);
+    }
+    // subagent.started + subagent.completed merge into one entry with stats
+    const subagent = byKind.get("subagent");
+    expect(subagent?.title).toBe("Explore");
+    expect(subagent?.data?.totalTokens).toBe(1234);
+    expect(subagent?.data?.totalToolCalls).toBe(9);
+    // compaction carries the injected recap + token deltas + duration
+    const compaction = byKind.get("compaction");
+    expect(compaction?.text).toContain("delta bug");
+    expect(compaction?.data?.durationSec).toBe(4);
+    expect(compaction?.data?.tokensRemoved).toBe(90000);
+    expect(byKind.get("skill")?.title).toBe("dredge-up");
+    expect(byKind.get("task_complete")?.text).toContain("resolved");
+  });
 });

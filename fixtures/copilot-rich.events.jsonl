@@ -1,0 +1,12 @@
+{"type":"session.start","data":{"sessionId":"copilot-rich","startTime":"2026-02-01T00:00:00.000Z","context":{"cwd":"/tmp/rich","repository":"fixture/rich"}},"timestamp":"2026-02-01T00:00:00.000Z"}
+{"type":"user.message","data":{"content":"Investigate the delta bug."},"timestamp":"2026-02-01T00:00:01.000Z"}
+{"type":"skill.invoked","data":{"name":"dredge-up","description":"session recap","source":"project","trigger":"user"},"timestamp":"2026-02-01T00:00:02.000Z"}
+{"type":"subagent.started","data":{"toolCallId":"sa1","agentName":"explore","agentDisplayName":"Explore","agentDescription":"scout the codebase","model":"claude"},"timestamp":"2026-02-01T00:00:03.000Z"}
+{"type":"subagent.completed","data":{"toolCallId":"sa1","durationMs":4200,"totalTokens":1234,"totalToolCalls":9},"timestamp":"2026-02-01T00:00:07.000Z"}
+{"type":"session.plan_changed","data":{"operation":"updated"},"timestamp":"2026-02-01T00:00:08.000Z"}
+{"type":"session.warning","data":{"message":"context is getting large"},"timestamp":"2026-02-01T00:00:09.000Z"}
+{"type":"session.compaction_start","data":{"preCompactionTokens":120000},"timestamp":"2026-02-01T00:00:10.000Z"}
+{"type":"session.compaction_complete","data":{"success":true,"summaryContent":"Recap: delta bug is in parser.","preCompactionTokens":120000,"postCompactionTokens":30000,"messagesRemoved":40,"tokensRemoved":90000},"timestamp":"2026-02-01T00:00:14.000Z"}
+{"type":"session.error","data":{"message":"transient network error"},"timestamp":"2026-02-01T00:00:15.000Z"}
+{"type":"assistant.message","data":{"content":"The delta bug is fixed.","model":"gpt"},"timestamp":"2026-02-01T00:00:16.000Z"}
+{"type":"session.task_complete","data":{"success":true,"summary":"Delta bug resolved."},"timestamp":"2026-02-01T00:00:17.000Z"}
