@@ -763,9 +763,31 @@ function elapsedStr(start: string, end?: string): string {
   return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 }
 
+let _katexCss: string | null = null;
+
 function katexCss(): string {
-  try { return readFileSync(require.resolve("katex/dist/katex.min.css"), "utf8"); }
-  catch { return ""; }
+  if (_katexCss !== null) return _katexCss;
+  try {
+    const cssPath = require.resolve("katex/dist/katex.min.css");
+    const cssDir = dirname(cssPath);
+    const raw = readFileSync(cssPath, "utf8");
+    _katexCss = raw.replace(/src:([^}]*)/g, (_match, sources: string) => {
+      const woff2 = sources.split(",").find((source) => source.includes(".woff2"));
+      if (!woff2) return "";
+      const embedded = woff2.replace(
+        /url\((?:["']?)(fonts\/[^)"']+\.woff2)(?:["']?)\)/,
+        (_url, relativePath: string) => {
+          const base64 = readFileSync(join(cssDir, relativePath)).toString("base64");
+          return `url(data:font/woff2;base64,${base64})`;
+        },
+      );
+      return `src:${embedded}`;
+    });
+    return _katexCss;
+  } catch {
+    _katexCss = "";
+    return _katexCss;
+  }
 }
 
 /* ─────────────────────────────────────────────── client + css ─────────── */

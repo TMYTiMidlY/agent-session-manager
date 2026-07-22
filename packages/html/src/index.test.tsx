@@ -143,6 +143,19 @@ describe("renderSessionHtml", () => {
     expect(html).toContain("--shiki-light");
   });
 
+  it("embeds KaTeX woff2 fonts so the standalone document works offline", async () => {
+    const html = await renderSessionHtml(baseSession([
+      {
+        index: 0,
+        role: "assistant",
+        kind: "message",
+        text: "Inline math: $E = mc^2$",
+      },
+    ]));
+    expect(html).toContain("data:font/woff2;base64,");
+    expect(html).not.toContain("url(fonts/");
+  });
+
   it("keeps non-diff tool output as plain <pre> (skips Shiki bloat)", async () => {
     const html = await renderSessionHtml(baseSession([
       {
@@ -216,4 +229,3 @@ describe("renderSessionHtml", () => {
     expect(html).not.toMatch(/id="entry-3"[^>]*open/);
   });
 });
-
