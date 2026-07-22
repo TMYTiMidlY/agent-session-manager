@@ -24,6 +24,7 @@ program
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes (agent auto-detected)")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--copilot-db <path>", "override Copilot session-store.db (for pruned/DB-only sessions)")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (opts) => {
@@ -42,6 +43,7 @@ program
   .option("--file <path>", "search an explicit session file/directory (e.g. a restic-restored backup cache)")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--copilot-db <path>", "override Copilot session-store.db (for pruned/DB-only sessions)")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (query, opts) => {
@@ -61,6 +63,7 @@ program
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--copilot-db <path>", "override Copilot session-store.db (for pruned/DB-only sessions)")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
@@ -90,6 +93,7 @@ program
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--copilot-db <path>", "override Copilot session-store.db (for pruned/DB-only sessions)")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
@@ -120,6 +124,7 @@ program
   .option("--file <path>", "read an explicit session file/directory instead of the live agent homes")
   .option("--events <path>", "alias of --file (an explicit events.jsonl path)")
   .option("--copilot-root <path>", "override Copilot session-state root")
+  .option("--copilot-db <path>", "override Copilot session-store.db (for pruned/DB-only sessions)")
   .option("--claude-root <path>", "override Claude projects root")
   .option("--codex-root <path>", "override Codex sessions root")
   .action(async (id, opts) => {
@@ -199,6 +204,7 @@ async function resolveOne(id: string | undefined, opts: Record<string, unknown>)
 function rootsFromOptions(opts: Record<string, unknown>): AgentRoots {
   return {
     copilot: typeof opts.copilotRoot === "string" ? opts.copilotRoot : undefined,
+    copilotDb: typeof opts.copilotDb === "string" ? opts.copilotDb : undefined,
     claude: typeof opts.claudeRoot === "string" ? opts.claudeRoot : undefined,
     codex: typeof opts.codexRoot === "string" ? opts.codexRoot : undefined,
   };
