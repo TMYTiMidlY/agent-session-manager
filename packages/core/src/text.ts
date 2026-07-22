@@ -9,6 +9,17 @@ export function stringifyCompact(value: unknown): string {
   }
 }
 
+export function stringifyInline(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return stringifyCompact(content);

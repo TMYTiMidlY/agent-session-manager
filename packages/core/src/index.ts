@@ -2,11 +2,11 @@ export * from "./types.js";
 
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef } from "./types.js";
+import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, TimelineEntry } from "./types.js";
 import { discoverClaude, parseClaude } from "./adapters/claude.js";
 import { discoverCodex, parseCodex } from "./adapters/codex.js";
 import { discoverCopilot, parseCopilot } from "./adapters/copilot.js";
-import { excerpt } from "./text.js";
+import { excerpt, stringifyInline } from "./text.js";
 import { expandHome, fileStem, parentName, pathExists, readJsonl, walkFiles } from "./fs.js";
 
 export const AGENTS: AgentKind[] = ["copilot", "claude", "codex"];
@@ -165,7 +165,44 @@ export function sessionToText(session: ParsedSession): string {
   const body = session.entries.map((entry) => {
     const time = entry.timestamp ? ` ${entry.timestamp}` : "";
     const title = entry.title ? ` ${entry.title}` : "";
-    return `## ${entry.index + 1}. ${entry.role}/${entry.kind}${title}${time}\n\n${entry.text}`;
+    return `## ${entry.index + 1}. ${entry.role}/${entry.kind}${title}${time}\n\n${timelineEntryToText(entry)}`;
   }).join("\n\n");
   return `${header}${body}\n`;
+}
+
+function timelineEntryToText(entry: TimelineEntry): string {
+  if (entry.tool) {
+    const lines = [`tool: ${entry.tool.name ?? "(unnamed)"}`];
+    if (entry.tool.arguments !== undefined) lines.push(`args: ${stringifyInline(entry.tool.arguments)}`);
+    if (entry.tool.intentionSummary) lines.push(`intention: ${entry.tool.intentionSummary}`);
+    if (entry.tool.partialOutput) lines.push(`partial-output:\n${entry.tool.partialOutput}`);
+    lines.push(`result: ${entry.tool.result?.type ?? "pending"}`);
+    if (entry.tool.result?.log) lines.push(`log:\n${entry.tool.result.log}`);
+    return lines.join("\n");
+  }
+
+  const data = entry.data ?? {};
+  const stats: string[] = [];
+  let text = entry.text;
+
+  if (entry.kind === "subagent") {
+    stats.push(`name: ${stringifyInline(entry.title ?? data.agentDisplayName ?? data.agentName ?? "(unnamed)")}`);
+    if (data.model !== undefined) stats.push(`model: ${stringifyInline(data.model)}`);
+    if (data.failed !== undefined) stats.push(`failed: ${stringifyInline(data.failed)}`);
+  } else if (entry.kind === "skill") {
+    stats.push(`name: ${stringifyInline(entry.title ?? data.name ?? "(unnamed)")}`);
+    if (data.source !== undefined) stats.push(`source: ${stringifyInline(data.source)}`);
+    if (data.trigger !== undefined) stats.push(`trigger: ${stringifyInline(data.trigger)}`);
+  } else if (entry.kind === "plan") {
+    if (data.operation !== undefined) stats.push(`operation: ${stringifyInline(data.operation)}`);
+  } else if (entry.kind === "compaction") {
+    if (data.preTokens !== undefined) stats.push(`tokens: ${stringifyInline(data.preTokens)}`);
+    if (data.preMessages !== undefined) stats.push(`messages: ${stringifyInline(data.preMessages)}`);
+    if (data.durationMs !== undefined) stats.push(`duration-ms: ${stringifyInline(data.durationMs)}`);
+    if (text) stats.push(`summary:\n${text}`);
+    text = "";
+  }
+
+  if (text) stats.push(text);
+  return stats.join("\n");
 }
