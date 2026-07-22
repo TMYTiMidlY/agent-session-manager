@@ -234,23 +234,34 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     }
 
     if (type === "session.error" || type === "error") {
+      const errorType = typeof data.errorType === "string" ? data.errorType : undefined;
+      const message = stringOrEmpty(data.message ?? data.content ?? data.error);
       push({
         role: "event",
         kind: "error",
-        text: stringOrEmpty(data.message ?? data.content ?? data.error),
+        text: typedEventText(errorType, message),
         timestamp,
         rawType: type,
+        detail: errorType,
+        data: {
+          errorType,
+          stack: typeof data.stack === "string" ? data.stack : undefined,
+        },
       });
       continue;
     }
 
     if (type === "session.warning" || type === "warning") {
+      const warningType = typeof data.warningType === "string" ? data.warningType : undefined;
+      const message = stringOrEmpty(data.message ?? data.content);
       push({
         role: "event",
         kind: "warning",
-        text: stringOrEmpty(data.message ?? data.content),
+        text: typedEventText(warningType, message),
         timestamp,
         rawType: type,
+        detail: warningType,
+        data: { warningType },
       });
       continue;
     }
@@ -499,6 +510,11 @@ function normaliseToolResult(data: Record<string, unknown>): ToolDetail["result"
 function partialOutput(value: unknown): string | undefined {
   if (value == null) return undefined;
   return stringOrEmpty(value);
+}
+
+function typedEventText(type: string | undefined, message: string): string {
+  if (!type) return message;
+  return message ? `[${type}] ${message}` : `[${type}]`;
 }
 
 function toolResultKind(value: unknown): ToolResultKind | undefined {

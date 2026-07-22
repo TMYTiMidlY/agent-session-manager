@@ -52,6 +52,19 @@ describe("agent adapters", () => {
     expect(byKind.get("skill")?.title).toBe("dredge-up");
     expect(byKind.get("skill")?.data?.trigger).toBe("user");
     expect(byKind.get("task_complete")?.text).toContain("resolved");
+    expect(byKind.get("warning")).toMatchObject({
+      text: "[context] context is getting large",
+      detail: "context",
+      data: { warningType: "context" },
+    });
+    expect(byKind.get("error")).toMatchObject({
+      text: "[network] transient network error",
+      detail: "network",
+      data: {
+        errorType: "network",
+        stack: expect.stringContaining("at fetch"),
+      },
+    });
   });
 
   it("keeps tools at their start position and mutates lifecycle details in place", async () => {
