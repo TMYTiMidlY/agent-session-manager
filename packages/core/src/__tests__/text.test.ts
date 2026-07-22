@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCopilot } from "../adapters/copilot.js";
-import { sessionToText } from "../index.js";
+import { searchRefs, sessionToText, timelineEntrySearchText } from "../index.js";
 
 const fixtures = resolve(fileURLToPath(new URL("../../../../fixtures", import.meta.url)));
 
@@ -33,5 +33,30 @@ describe("sessionToText", () => {
     expect(text).toContain("operation: updated");
     expect(text).toContain("tokens: 120000\nmessages: 40\nduration-ms: 4000");
     expect(text).toContain("summary:\nRecap: delta bug is in parser.");
+  });
+});
+
+describe("timeline search text", () => {
+  it("finds a term that appears only in tool arguments", async () => {
+    const ref = {
+      agent: "copilot" as const,
+      id: "core-tool-lifecycle",
+      path: resolve(fixtures, "core-tool-lifecycle.events.jsonl"),
+    };
+    const hits = await searchRefs([ref], "pending.txt");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.entry.tool?.callId).toBe("pending");
+    expect(hits[0]?.excerpt).toContain("pending.txt");
+  });
+
+  it("includes structured entry data", () => {
+    const text = timelineEntrySearchText({
+      index: 0,
+      role: "event",
+      kind: "skill",
+      text: "",
+      data: { source: "project", trigger: "scheduled-run" },
+    });
+    expect(text).toContain("scheduled-run");
   });
 });

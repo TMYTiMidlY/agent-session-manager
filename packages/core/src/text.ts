@@ -1,3 +1,5 @@
+import type { TimelineEntry } from "./types.js";
+
 export function stringifyCompact(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return value;
@@ -44,4 +46,33 @@ export function excerpt(text: string, query: string, width = 220): string {
   if (pos < 0) return text.slice(0, width).replace(/\s+/g, " ");
   const start = Math.max(0, pos - Math.floor(width / 3));
   return text.slice(start, start + width).replace(/\s+/g, " ");
+}
+
+export function timelineEntrySearchText(entry: TimelineEntry): string {
+  const chunks: string[] = [];
+
+  function add(value: unknown): void {
+    const text = typeof value === "string" ? value : stringifyInline(value);
+    if (text) chunks.push(text);
+  }
+
+  add(entry.role);
+  add(entry.kind);
+  add(entry.rawType);
+  add(entry.title);
+  add(entry.text);
+  add(entry.detail);
+
+  if (entry.tool) {
+    add(entry.tool.callId);
+    add(entry.tool.name);
+    add(entry.tool.intentionSummary);
+    add(entry.tool.arguments);
+    add(entry.tool.partialOutput);
+    add(entry.tool.result?.type);
+    add(entry.tool.result?.log);
+  }
+
+  add(entry.data);
+  return chunks.join("\n");
 }

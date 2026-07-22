@@ -6,8 +6,10 @@ import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, Timel
 import { discoverClaude, parseClaude } from "./adapters/claude.js";
 import { discoverCodex, parseCodex } from "./adapters/codex.js";
 import { discoverCopilot, parseCopilot } from "./adapters/copilot.js";
-import { excerpt, stringifyInline } from "./text.js";
+import { excerpt, stringifyInline, timelineEntrySearchText } from "./text.js";
 import { expandHome, fileStem, parentName, pathExists, readJsonl, walkFiles } from "./fs.js";
+
+export { timelineEntrySearchText };
 
 export const AGENTS: AgentKind[] = ["copilot", "claude", "codex"];
 
@@ -43,7 +45,8 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
   for (const ref of refs) {
     const parsed = await parseSession(ref);
     for (const entry of parsed.entries) {
-      if (!entry.text || !entry.text.toLowerCase().includes(needle)) continue;
+      const searchText = timelineEntrySearchText(entry);
+      if (!searchText.toLowerCase().includes(needle)) continue;
       hits.push({
         session: {
           agent: parsed.agent,
@@ -58,7 +61,7 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
           source: parsed.source,
         },
         entry,
-        excerpt: excerpt(entry.text, query),
+        excerpt: excerpt(searchText, query),
       });
       if (hits.length >= limit) return hits;
     }
