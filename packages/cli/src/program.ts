@@ -5,7 +5,7 @@ import { buildSearchCommand } from "./commands/search.js";
 import { buildShowCommand } from "./commands/show.js";
 import { buildHtmlCommand } from "./commands/html.js";
 import { buildMdCommand } from "./commands/md.js";
-import { buildBackupCommand } from "./commands/backup.js";
+import { buildBackupCommand } from "./commands/backup/index.js";
 
 /** Assemble the root `recall` program with every command attached. Exported so tests can drive it. */
 export function buildProgram(): Command {

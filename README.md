@@ -28,7 +28,7 @@ It is read-only against agent state directories. It does **not** write to `.copi
 | Export to HTML (close Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
 | Read a session file from anywhere (scp'd / restored) | `recall html --file /path/to/events.jsonl -o session.html` |
 | Search a restored backup cache directory | `recall search "keyword" --file /path/to/restored-cache` |
-| Run backup (restic wrapper) | `recall backup --dry-run` |
+| Run backup (restic wrapper) | `recall backup run --dry-run` |
 
 Supported agents:
 
@@ -176,12 +176,16 @@ recall md <session-id> -s summary.md -o report.md              # inject a markdo
 
 ### `recall backup`
 
-Run the restic backup wrapper:
+`backup` is a command group:
 
 ```bash
-recall backup --dry-run
-recall backup
+recall backup run --dry-run     # preview the restic backup
+recall backup run               # run the restic backup wrapper (backup.sh)
+recall backup                   # back-compat alias for `backup run`
+recall backup cache latest --target ~/.cache/recall/restic-cache   # restore a snapshot into a cache dir
 ```
+
+`backup cache` restores agent history from a restic snapshot into a **local cache directory** (never into the live `~/.copilot`, `~/.claude`, or `~/.codex` — that is refused), so read commands can later work over it with `--file` (and, in future, `--source cache`). Add `--host <h>` to pin a snapshot host and `--dry-run` to print the restic command without running it.
 
 Backup is a source for future recall/search work. Current search reads live local history; a *persistent* index over restored backup caches is tracked separately (issue #1). For ad-hoc work today, restore a snapshot and point any read command at it with `--file`:
 
@@ -256,8 +260,8 @@ restic init
 Then run:
 
 ```bash
-recall backup --dry-run
-recall backup
+recall backup run --dry-run
+recall backup run
 ```
 
 Keep `RESTIC_PASSWORD` in a password manager or another device. If you lose it, encrypted backups cannot be read.

@@ -15,4 +15,10 @@ describe("buildProgram", () => {
     const md = buildProgram().commands.find((command) => command.name() === "md");
     expect(md?.aliases()).toContain("markdown");
   });
+
+  it("exposes backup as a group with run and cache subcommands", () => {
+    const backup = buildProgram().commands.find((command) => command.name() === "backup");
+    const subs = backup?.commands.map((command) => command.name()).sort();
+    expect(subs).toEqual(["cache", "run"]);
+  });
 });
