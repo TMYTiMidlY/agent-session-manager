@@ -17,7 +17,7 @@ up whichever of those agent homes exist. For GitHub Copilot CLI (`~/.copilot`):
 
 | Path | Typical size | What it is | Change pattern | Backed up? |
 |---|---|---|---|---|
-| `session-state/<id>/events.jsonl` | large (GBs total) | Per-session event stream — the single source of truth for `/share html` and `recall` | append-only | ✅ core |
+| `session-state/<id>/events.jsonl` | large (GBs total) | Persisted per-session event stream — replayed on resume and mapped into offline `recall` entries; live `/share html` renders the in-memory timeline instead | append-heavy; may be truncated or rewritten at compaction | ✅ core |
 | `session-state/<id>/{checkpoints,files,research}/` | small–medium | Per-session artifacts (checkpoints, attached files, research notes) | grows | ✅ |
 | `session-store.db` | tens of MB | SQLite index over all sessions (summaries, turns, file/ref index, FTS) | rewritten in place | ✅ — WAL is checkpointed first so the copy is self-consistent |
 | `session-store.db-wal` / `-shm` | small | SQLite write-ahead log / shared memory (hot files) | churns constantly | ❌ excluded (`exclude.txt`) |
@@ -36,8 +36,10 @@ that, the CLI keeps filesystem snapshots under
 
 Setting `BACKUP_EXCLUDE_REWIND=1` drops these from the backup. It saves more space than
 any other single exclusion and does **not** affect `/share html`, `--resume`, or
-`recall` / dredge-up — all of those read `events.jsonl`, which is always backed up.
-The only thing you lose is the ability to `/rewind` a *restored* session.
+`recall` / dredge-up. Live `/share html` renders the current in-memory timeline;
+resume and offline exporters reconstruct from `events.jsonl`, which is always backed
+up. The only thing you lose is the ability to `/rewind` a *restored* session. See
+the [Copilot timeline model](copilot-timeline.md) for the distinction.
 
 ## Architecture (generic)
 

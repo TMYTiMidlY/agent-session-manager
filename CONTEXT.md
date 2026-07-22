@@ -14,5 +14,16 @@ Read-only retrieval of historical sessions: search, text display, JSON export, a
 ### Archive source
 A place where session files can be read from. Archive sources include the live local agent directories and a restic-restored cache of backed-up session files.
 
+### Event
+A raw record in an agent's persisted stream. For Copilot, events are stored in
+`events.jsonl` and are the input to offline timeline reconstruction; they are
+not the objects rendered directly by live `/share html`.
+
 ### Timeline entry
-A normalized item in a session timeline, such as a user message, assistant response, reasoning block, or tool call. Timeline entries are the shared model consumed by search and HTML rendering.
+A presentational item in a session timeline, such as a user message, assistant
+response, reasoning block, or tool call. Copilot keeps live timeline entries in
+memory; `recall` reconstructs normalized entries from persisted events. Timeline
+entries are the shared model consumed by search and renderers.
+
+See [`docs/copilot-timeline.md`](docs/copilot-timeline.md) for the Copilot event
+to timeline-entry mapping and its offline fidelity limits.
