@@ -86,4 +86,19 @@ describe("agent adapters", () => {
     expect(explicit?.tool?.result?.type).toBe("failure");
     expect(session.updatedAt).toBe("2026-07-22T00:00:09.000Z");
   });
+
+  it("reports handled, intentionally ignored, and unknown Copilot event types", async () => {
+    const session = await parseCopilot({
+      agent: "copilot",
+      id: "core-copilot-diagnostics",
+      path: resolve(root, "core-copilot-diagnostics.events.jsonl"),
+    });
+    expect(session.diagnostics).toEqual({
+      handled: 2,
+      ignored: 5,
+      unknown: 2,
+      unknownTypes: ["future.event"],
+    });
+    expect(session.entries.map((entry) => entry.text)).toEqual(["known event"]);
+  });
 });

@@ -7,6 +7,51 @@ import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
 const DEFAULT_ROOT = "~/.copilot/session-state";
 const DEFAULT_DB = "~/.copilot/session-store.db";
 
+const HANDLED_EVENT_TYPES = new Set([
+  "session.start",
+  "user.message",
+  "assistant.message",
+  "tool.execution_start",
+  "tool.execution_complete",
+  "system.notification",
+  "session.info",
+  "abort",
+  "session.error",
+  "error",
+  "session.warning",
+  "warning",
+  "handoff",
+  "session.compaction_start",
+  "session.compaction_complete",
+  "compaction",
+  "session.task_complete",
+  "task_complete",
+  "subagent.started",
+  "subagent.selected",
+  "subagent.completed",
+  "subagent.failed",
+  "skill.invoked",
+  "session.plan_changed",
+]);
+
+const INTENTIONALLY_IGNORED_EVENT_TYPES = new Set([
+  "session.model_change",
+  "session.resume",
+  "session.shutdown",
+  "session.mode_changed",
+  "session.context_changed",
+  "session.workspace_file_changed",
+  "session.binary_asset",
+  "session.permissions_changed",
+  "session.schedule_created",
+  "session.schedule_cancelled",
+  "session.truncation",
+  "session.usage_checkpoint",
+  "hook.*",
+  "assistant.turn_*",
+  "system.message",
+]);
+
 export async function discoverCopilot(root = DEFAULT_ROOT, dbPath = DEFAULT_DB): Promise<SessionRef[]> {
   const resolvedDbPath = expandHome(dbPath);
   const [files, dbSessions] = await Promise.all([
@@ -56,6 +101,8 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
   let title = ref.title;
   let repository = ref.repository;
   const branch = ref.branch;
+  const diagnosticCounts = { handled: 0, ignored: 0, unknown: 0 };
+  const unknownTypes = new Set<string>();
 
   /** tool entries waiting for their matching complete event, keyed by callId */
   const pendingTools = new Map<string, TimelineEntry>();
@@ -77,6 +124,17 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     const type = String(event.type ?? "event");
     const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
     updatedAt = timestamp ?? updatedAt;
+
+    if (isIntentionallyIgnoredEvent(type)) {
+      diagnosticCounts.ignored += 1;
+      continue;
+    }
+    if (!HANDLED_EVENT_TYPES.has(type)) {
+      diagnosticCounts.unknown += 1;
+      unknownTypes.add(type);
+      continue;
+    }
+    diagnosticCounts.handled += 1;
 
     if (type === "session.start") {
       const context = (data.context ?? {}) as Record<string, unknown>;
@@ -334,9 +392,6 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       continue;
     }
 
-    // Intentionally dropped: hook.*, assistant.turn_*, system.message
-    // (system prompt is huge and noisy), session.model_change (we prefer
-    // the session.info(infoType=model) text version).
   }
 
   return {
@@ -348,6 +403,10 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     repository,
     branch,
     source: { kind: "events", path: ref.path, lossy: false },
+    diagnostics: {
+      ...diagnosticCounts,
+      unknownTypes: [...unknownTypes].sort(),
+    },
     entries,
   };
 }
@@ -449,6 +508,12 @@ function toolResultKind(value: unknown): ToolResultKind | undefined {
     return value;
   }
   return undefined;
+}
+
+function isIntentionallyIgnoredEvent(type: string): boolean {
+  return INTENTIONALLY_IGNORED_EVENT_TYPES.has(type)
+    || type.startsWith("hook.")
+    || type.startsWith("assistant.turn_");
 }
 
 export function copilotRoots(root?: string): string {

@@ -1,0 +1,9 @@
+{"type":"session.start","data":{"sessionId":"core-copilot-diagnostics","startTime":"2026-07-22T00:00:00.000Z","context":{"cwd":"/workspace/diagnostics","repository":"fixture/diagnostics"}},"timestamp":"2026-07-22T00:00:00.000Z"}
+{"type":"user.message","data":{"content":"known event"},"timestamp":"2026-07-22T00:00:01.000Z"}
+{"type":"session.model_change","data":{"model":"ignored-model-change"},"timestamp":"2026-07-22T00:00:02.000Z"}
+{"type":"session.resume","data":{},"timestamp":"2026-07-22T00:00:03.000Z"}
+{"type":"hook.after_tool","data":{},"timestamp":"2026-07-22T00:00:04.000Z"}
+{"type":"assistant.turn_started","data":{},"timestamp":"2026-07-22T00:00:05.000Z"}
+{"type":"system.message","data":{"content":"ignored system prompt"},"timestamp":"2026-07-22T00:00:06.000Z"}
+{"type":"future.event","data":{"content":"unknown once"},"timestamp":"2026-07-22T00:00:07.000Z"}
+{"type":"future.event","data":{"content":"unknown twice"},"timestamp":"2026-07-22T00:00:08.000Z"}
