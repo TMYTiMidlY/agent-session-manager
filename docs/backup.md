@@ -82,4 +82,60 @@ recall backup --dry-run                                       # preview
 recall backup                                                 # for real
 ```
 
-See `systemd/` for an example user timer that runs the backup daily.
+## Automatic runs (systemd user timer)
+
+To run the backup daily, install a user-level `oneshot` service + timer. Create the two
+unit files below (adjust the `ExecStart`/log paths to your `agent-session-exporter`
+checkout — `%h` expands to your home directory):
+
+`~/.config/systemd/user/agent-session-exporter.service`
+
+```ini
+[Unit]
+Description=agent-session-exporter agent history backup (restic)
+Documentation=https://github.com/restic/restic
+
+[Service]
+Type=oneshot
+# Point these at your checkout:
+ExecStart=%h/projects/agent-session-exporter/backup.sh
+StandardOutput=append:%h/projects/agent-session-exporter/backup.log
+StandardError=append:%h/projects/agent-session-exporter/backup.log
+# Be gentle on an HDD-backed store:
+Nice=10
+IOSchedulingClass=idle
+```
+
+`~/.config/systemd/user/agent-session-exporter.timer`
+
+```ini
+[Unit]
+Description=Daily agent-session-exporter backup timer
+
+[Timer]
+# Once a day, with 0-10 min jitter so it doesn't fire exactly at midnight:
+OnCalendar=daily
+RandomizedDelaySec=600
+# Catch up a missed run after the machine was off:
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Then enable it:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now agent-session-exporter.timer
+systemctl --user list-timers agent-session-exporter.timer   # verify next/last run
+```
+
+If the timer must run while you are logged out, enable lingering:
+`sudo loginctl enable-linger "$USER"`.
+
+> Only one machine should own the timer. If you are migrating from an older deployment
+> whose units pointed at a previous checkout (e.g. a `copilot-backup/` directory) and/or
+> tagged snapshots `session-recall`, disable and delete those old units first
+> (`systemctl --user disable --now <old>.timer`, then remove the unit files) so you do
+> not run two backups or split the retention lineage (see "Retention" above).

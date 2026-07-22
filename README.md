@@ -271,8 +271,8 @@ If the timer should run while you are logged out, enable user lingering with you
 This problem space is crowded — at least 14 OSS projects target similar
 ground. Several have meaningful star counts, and at least one is by a
 prominent open-source author. We surveyed them before designing this
-tool. A read-only mirror of each project is kept at
-`1810:/home/timidly/projects/readonly-repos/<name>/` for local reference.
+tool. A read-only mirror of each project is kept in a local
+`readonly-repos/<name>/` directory for reference.
 
 | Repository | Stars | Lang | Form factor | Agents covered | Notes |
 |---|---:|---|---|---|---|
