@@ -2,6 +2,7 @@ export type AgentKind = "copilot" | "claude" | "codex";
 
 export interface AgentRoots {
   copilot?: string;
+  copilotDb?: string;
   claude?: string;
   codex?: string;
 }

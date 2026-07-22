@@ -1,25 +1,60 @@
-import { basename, dirname, join } from "node:path";
-import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail, ToolResultKind } from "../types.js";
+import { basename, dirname } from "node:path";
+import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail } from "../types.js";
 import { contentToText } from "../text.js";
 import { expandHome, readJsonl, walkFiles } from "../fs.js";
+import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
 
 const DEFAULT_ROOT = "~/.copilot/session-state";
+const DEFAULT_DB = "~/.copilot/session-store.db";
 
-export async function discoverCopilot(root = DEFAULT_ROOT): Promise<SessionRef[]> {
-  const files = await walkFiles(expandHome(root), (path) => basename(path) === "events.jsonl");
-  return files.map((path) => ({
-    agent: "copilot",
-    id: basename(dirname(path)),
-    path,
-  }));
+export async function discoverCopilot(root = DEFAULT_ROOT, dbPath = DEFAULT_DB): Promise<SessionRef[]> {
+  const resolvedDbPath = expandHome(dbPath);
+  const [files, dbSessions] = await Promise.all([
+    walkFiles(expandHome(root), (path) => basename(path) === "events.jsonl"),
+    listCopilotDbSessions(resolvedDbPath),
+  ]);
+  const refs = new Map<string, SessionRef>();
+
+  for (const session of dbSessions) {
+    refs.set(session.id, {
+      agent: "copilot",
+      id: session.id,
+      path: resolvedDbPath,
+      cwd: session.cwd,
+      title: session.summary,
+      repository: session.repository,
+      branch: session.branch,
+      source: { kind: "db-turns", path: resolvedDbPath, lossy: true },
+    });
+  }
+
+  for (const path of files) {
+    const id = basename(dirname(path));
+    const dbRef = refs.get(id);
+    refs.set(id, {
+      ...dbRef,
+      agent: "copilot",
+      id,
+      path,
+      source: { kind: "events", path, lossy: false },
+    });
+  }
+
+  return [...refs.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
+  if (ref.source?.kind === "db-turns" || (basename(ref.path) === "session-store.db" && ref.source?.kind !== "events")) {
+    return parseCopilotDb(ref);
+  }
+
   const rows = await readJsonl(ref.path);
   const entries: TimelineEntry[] = [];
   let cwd = ref.cwd;
   let startedAt = ref.startedAt;
   let title = ref.title;
+  let repository = ref.repository;
+  const branch = ref.branch;
 
   /** start events waiting for their matching complete event, keyed by callId */
   const pendingStarts = new Map<string, { name?: string; args?: unknown; intentionSummary?: string; partialOutput?: string; timestamp?: string }>();
@@ -45,7 +80,8 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       const context = (data.context ?? {}) as Record<string, unknown>;
       cwd = typeof context.cwd === "string" ? context.cwd : cwd;
       startedAt = typeof data.startTime === "string" ? data.startTime : timestamp ?? startedAt;
-      title = typeof context.repository === "string" ? context.repository : title;
+      repository = typeof context.repository === "string" ? context.repository : repository;
+      title ??= repository;
       continue;
     }
 
@@ -341,6 +377,41 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     updatedAt: entries.at(-1)?.timestamp,
     cwd,
     title,
+    repository,
+    branch,
+    source: { kind: "events", path: ref.path, lossy: false },
+    entries,
+  };
+}
+
+async function parseCopilotDb(ref: SessionRef): Promise<ParsedSession> {
+  const stored = await readCopilotDbSession(ref.path, ref.id);
+  const entries: TimelineEntry[] = [];
+
+  function push(role: "user" | "assistant", text: string, turnIndex: number): void {
+    if (!text.trim()) return;
+    entries.push({
+      index: entries.length,
+      role,
+      kind: "message",
+      text,
+      rawType: role === "user" ? "turns.user_message" : "turns.assistant_response",
+      data: { turnIndex },
+    });
+  }
+
+  for (const turn of stored?.turns ?? []) {
+    if (turn.userMessage) push("user", turn.userMessage, turn.turnIndex);
+    if (turn.assistantResponse) push("assistant", turn.assistantResponse, turn.turnIndex);
+  }
+
+  return {
+    ...ref,
+    cwd: stored?.session.cwd ?? ref.cwd,
+    title: stored?.session.summary ?? ref.title,
+    repository: stored?.session.repository ?? ref.repository,
+    branch: stored?.session.branch ?? ref.branch,
+    source: { kind: "db-turns", path: ref.path, lossy: true },
     entries,
   };
 }
@@ -404,5 +475,9 @@ function normaliseToolResult(data: Record<string, unknown>): ToolDetail["result"
 }
 
 export function copilotRoots(root?: string): string {
-  return root ?? join("~", ".copilot", "session-state");
+  return root ?? DEFAULT_ROOT;
+}
+
+export function copilotDbRoot(root?: string): string {
+  return root ?? DEFAULT_DB;
 }

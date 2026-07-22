@@ -1,12 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { mkdtemp, cp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { afterEach, describe, expect, it } from "vitest";
+import { cp, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonl } from "../fs.js";
 import { detectAgent, discoverPath, findSessionAmong, refFromFile, searchRefs } from "../index.js";
 
 const fixtures = resolve(fileURLToPath(new URL("../../../../fixtures", import.meta.url)));
+const scratchDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(scratchDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
 
 describe("agent detection", () => {
   it("detects copilot from events rows", async () => {
@@ -64,7 +68,8 @@ describe("discoverPath", () => {
   });
 
   it("searches a restic-cache-style directory copied elsewhere", async () => {
-    const cache = await mkdtemp(join(tmpdir(), "recall-cache-"));
+    const cache = await mkdtemp(join(process.cwd(), ".core-recall-cache-"));
+    scratchDirectories.push(cache);
     await cp(fixtures, cache, { recursive: true });
     const hits = await searchRefs(await discoverPath(cache), "gamma");
     expect(hits.some((hit) => hit.session.agent === "codex")).toBe(true);

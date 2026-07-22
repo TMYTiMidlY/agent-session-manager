@@ -13,7 +13,7 @@ export const AGENTS: AgentKind[] = ["copilot", "claude", "codex"];
 
 export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: AgentRoots = {}): Promise<SessionRef[]> {
   const found: SessionRef[] = [];
-  if (agents.includes("copilot")) found.push(...(await discoverCopilot(roots.copilot)));
+  if (agents.includes("copilot")) found.push(...(await discoverCopilot(roots.copilot, roots.copilotDb)));
   if (agents.includes("claude")) found.push(...(await discoverClaude(roots.claude)));
   if (agents.includes("codex")) found.push(...(await discoverCodex(roots.codex)));
   return found.sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
@@ -53,6 +53,9 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
           updatedAt: parsed.updatedAt,
           cwd: parsed.cwd,
           title: parsed.title,
+          repository: parsed.repository,
+          branch: parsed.branch,
+          source: parsed.source,
         },
         entry,
         excerpt: excerpt(entry.text, query),
