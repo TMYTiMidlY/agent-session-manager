@@ -7,7 +7,7 @@ export function buildBackupCommand(): Command {
     .description("Back up and restore agent history via restic");
   cmd.addCommand(buildBackupRunCommand());
   cmd.addCommand(buildBackupCacheCommand());
-  // Back-compat: bare `recall backup` still runs a full backup (= `backup run`).
+  // Back-compat: bare `chronicle backup` still runs a full backup (= `backup run`).
   // `--dry-run` lives on the subcommands (not here) to avoid a parent/child
   // option clash that would swallow the flag before the subcommand sees it.
   cmd.action(async () => {

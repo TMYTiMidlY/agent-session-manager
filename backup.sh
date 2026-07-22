@@ -16,7 +16,7 @@ BACKUP_AGENT_DIRS="${BACKUP_AGENT_DIRS:-$HOME/.copilot:$HOME/.claude:$HOME/.code
 DRYRUN=""
 [ "${1:-}" = "--dry-run" ] && DRYRUN="--dry-run"
 
-echo "[$(date '+%F %T')] === agent-session-exporter 备份开始 ${DRYRUN:+(dry-run)} ==="
+echo "[$(date '+%F %T')] === agent-session-manager 备份开始 ${DRYRUN:+(dry-run)} ==="
 
 # 1) SQLite 一致性：把 WAL 合进主库并清空，使备份到的 .db 自洽
 #    库正被活跃 copilot 进程独占时 checkpoint 是 best-effort，失败不影响主库一致性
@@ -54,13 +54,13 @@ fi
 "$RESTIC" backup "${EXISTING_SOURCE_DIRS[@]}" \
   --exclude-file "$DIR/exclude.txt" \
   "${EXCLUDE_ARGS[@]}" \
-  --tag agent-session-exporter --tag "$(hostname)" \
+  --tag agent-session-manager --tag "$(hostname)" \
   $DRYRUN
 
 # 3) 保留策略 + prune（dry-run 时跳过）
 if [ -z "$DRYRUN" ]; then
   echo "[$(date '+%F %T')] === forget + prune ==="
-  "$RESTIC" forget --tag agent-session-exporter \
+  "$RESTIC" forget --tag agent-session-manager \
     --keep-daily 7 --keep-weekly 4 --keep-monthly 6 \
     --prune
 fi

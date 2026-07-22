@@ -1,7 +1,7 @@
 # Copilot `/share` asset drift oracle
 
 `extract-share-assets.cjs` is a reverse-engineering aid, not part of
-`recall`'s render path.
+`chronicle`'s render path.
 
 ## What it extracts
 

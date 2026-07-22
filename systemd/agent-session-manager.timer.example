@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily agent-session-exporter backup timer
+Description=Daily agent-session-manager backup timer
 
 [Timer]
 # 每天触发一次（午夜后 0-10 分钟随机抖动，避免整点拥塞）

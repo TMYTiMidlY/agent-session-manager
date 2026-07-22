@@ -14,7 +14,7 @@ describe("deriveProject", () => {
   });
 
   it("walks up to the nearest .git ancestor when the path exists", () => {
-    const root = mkdtempSync(join(tmpdir(), "recall-project-"));
+    const root = mkdtempSync(join(tmpdir(), "chronicle-project-"));
     mkdirSync(join(root, ".git"));
     const nested = join(root, "a", "b");
     mkdirSync(nested, { recursive: true });

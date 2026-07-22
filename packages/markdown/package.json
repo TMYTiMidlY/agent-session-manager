@@ -1,5 +1,5 @@
 {
-  "name": "@agent-session-exporter/markdown",
+  "name": "@agent-session-manager/markdown",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -11,6 +11,6 @@
     "test": "vitest run src/index.test.ts"
   },
   "dependencies": {
-    "@agent-session-exporter/core": "workspace:*"
+    "@agent-session-manager/core": "workspace:*"
   }
 }

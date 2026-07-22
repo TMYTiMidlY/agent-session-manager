@@ -5,7 +5,7 @@ import { assertSafeCacheTarget, defaultCacheDir } from "./cache-target.js";
 
 describe("assertSafeCacheTarget", () => {
   it("accepts a dedicated cache directory", () => {
-    const target = join(homedir(), ".cache", "recall", "restic-cache");
+    const target = join(homedir(), ".cache", "chronicle", "restic-cache");
     expect(assertSafeCacheTarget(target)).toBe(target);
   });
 

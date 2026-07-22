@@ -1,5 +1,5 @@
 {
-  "name": "@agent-session-exporter/html",
+  "name": "@agent-session-manager/html",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -11,7 +11,7 @@
     "test": "vitest run src/index.test.tsx"
   },
   "dependencies": {
-    "@agent-session-exporter/core": "workspace:*",
+    "@agent-session-manager/core": "workspace:*",
     "@shikijs/engine-javascript": "^4.3.0",
     "@shikijs/langs": "^4.3.0",
     "@shikijs/themes": "^4.3.0",

@@ -1,6 +1,6 @@
 # Backing up agent session history
 
-`recall backup` (a thin wrapper over `backup.sh`) takes an encrypted, deduplicated,
+`chronicle backup` (a thin wrapper over `backup.sh`) takes an encrypted, deduplicated,
 incremental backup of your coding-agent history with [restic](https://restic.net).
 It is the archive source behind the planned "search restored snapshots" feature
 (see `docs/issues/search-restic-backups.md`).
@@ -17,7 +17,7 @@ up whichever of those agent homes exist. For GitHub Copilot CLI (`~/.copilot`):
 
 | Path | Typical size | What it is | Change pattern | Backed up? |
 |---|---|---|---|---|
-| `session-state/<id>/events.jsonl` | large (GBs total) | Persisted per-session event stream — replayed on resume and mapped into offline `recall` entries; live `/share html` renders the in-memory timeline instead | append-heavy; may be truncated or rewritten at compaction | ✅ core |
+| `session-state/<id>/events.jsonl` | large (GBs total) | Persisted per-session event stream — replayed on resume and mapped into offline `chronicle` entries; live `/share html` renders the in-memory timeline instead | append-heavy; may be truncated or rewritten at compaction | ✅ core |
 | `session-state/<id>/{checkpoints,files,research}/` | small–medium | Per-session artifacts (checkpoints, attached files, research notes) | grows | ✅ |
 | `session-store.db` | tens of MB | SQLite index over all sessions (summaries, turns, file/ref index, FTS) | rewritten in place | ✅ — WAL is checkpointed first so the copy is self-consistent |
 | `session-store.db-wal` / `-shm` | small | SQLite write-ahead log / shared memory (hot files) | churns constantly | ❌ excluded (`exclude.txt`) |
@@ -36,7 +36,7 @@ that, the CLI keeps filesystem snapshots under
 
 Setting `BACKUP_EXCLUDE_REWIND=1` drops these from the backup. It saves more space than
 any other single exclusion and does **not** affect `/share html`, `--resume`, or
-`recall` / dredge-up. Live `/share html` renders the current in-memory timeline;
+`chronicle` / dredge-up. Live `/share html` renders the current in-memory timeline;
 resume and offline exporters reconstruct from `events.jsonl`, which is always backed
 up. The only thing you lose is the ability to `/rewind` a *restored* session. See
 the [Copilot timeline model](copilot-timeline.md) for the distinction.
@@ -64,55 +64,57 @@ this document are generic.
 
 ## Retention
 
-Each run tags its snapshot `agent-session-exporter` + `$(hostname)` and then applies:
+Each run tags its snapshot `agent-session-manager` + `$(hostname)` and then applies:
 
 ```
 restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 ```
 
-> Migration note: earlier deployments tagged snapshots `session-recall`. If you point a
-> new checkout at an existing repository, reconcile the tag (or add a matching
-> `--keep-tag`) so `forget` prunes the intended lineage rather than orphaning the old
-> snapshots.
+> Migration note: the snapshot tag has changed over time (`session-recall` →
+> `agent-session-exporter` → `agent-session-manager`). If you point a new checkout
+> at an existing repository, reconcile the tag (e.g. `restic tag --set
+> agent-session-manager --tag agent-session-exporter`, or add a matching
+> `--keep-tag`) so `forget` prunes the intended lineage rather than orphaning the
+> old snapshots.
 
 ## Running it
 
 ```bash
 cp secrets.env.example secrets.env && chmod 600 secrets.env   # fill in your backend
 set -a; source secrets.env; set +a && restic init            # once, for a new repo
-recall backup --dry-run                                       # preview
-recall backup                                                 # for real
+chronicle backup --dry-run                                       # preview
+chronicle backup                                                 # for real
 ```
 
 ## Automatic runs (systemd user timer)
 
 To run the backup daily, install a user-level `oneshot` service + timer. Create the two
-unit files below (adjust the `ExecStart`/log paths to your `agent-session-exporter`
+unit files below (adjust the `ExecStart`/log paths to your `agent-session-manager`
 checkout — `%h` expands to your home directory):
 
-`~/.config/systemd/user/agent-session-exporter.service`
+`~/.config/systemd/user/agent-session-manager.service`
 
 ```ini
 [Unit]
-Description=agent-session-exporter agent history backup (restic)
+Description=agent-session-manager agent history backup (restic)
 Documentation=https://github.com/restic/restic
 
 [Service]
 Type=oneshot
 # Point these at your checkout:
-ExecStart=%h/projects/agent-session-exporter/backup.sh
-StandardOutput=append:%h/projects/agent-session-exporter/backup.log
-StandardError=append:%h/projects/agent-session-exporter/backup.log
+ExecStart=%h/projects/agent-session-manager/backup.sh
+StandardOutput=append:%h/projects/agent-session-manager/backup.log
+StandardError=append:%h/projects/agent-session-manager/backup.log
 # Be gentle on an HDD-backed store:
 Nice=10
 IOSchedulingClass=idle
 ```
 
-`~/.config/systemd/user/agent-session-exporter.timer`
+`~/.config/systemd/user/agent-session-manager.timer`
 
 ```ini
 [Unit]
-Description=Daily agent-session-exporter backup timer
+Description=Daily agent-session-manager backup timer
 
 [Timer]
 # Once a day, with 0-10 min jitter so it doesn't fire exactly at midnight:
@@ -129,8 +131,8 @@ Then enable it:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now agent-session-exporter.timer
-systemctl --user list-timers agent-session-exporter.timer   # verify next/last run
+systemctl --user enable --now agent-session-manager.timer
+systemctl --user list-timers agent-session-manager.timer   # verify next/last run
 ```
 
 If the timer must run while you are logged out, enable lingering:

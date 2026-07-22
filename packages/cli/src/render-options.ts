@@ -1,5 +1,5 @@
 import { extname } from "node:path";
-import type { ParsedSession } from "@agent-session-exporter/core";
+import type { ParsedSession } from "@agent-session-manager/core";
 
 export type SummaryFormat = "html" | "markdown";
 

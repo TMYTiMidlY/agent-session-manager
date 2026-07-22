@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderSessionMarkdown } from "./index.js";
-import type { ParsedSession } from "@agent-session-exporter/core";
+import type { ParsedSession } from "@agent-session-manager/core";
 
 const fixedDate = new Date("2026-01-01T00:01:30.000Z");
 

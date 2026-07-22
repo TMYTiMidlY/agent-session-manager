@@ -1,11 +1,11 @@
-# agent-session-exporter
+# agent-session-manager
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D22-339933?logo=nodedotjs&logoColor=white)
 ![pnpm](https://img.shields.io/badge/pnpm-workspace-f69220?logo=pnpm&logoColor=white)
 ![Vitest](https://img.shields.io/badge/tests-Vitest-6E9F18?logo=vitest&logoColor=white)
 
-**Export coding-agent CLI sessions to Markdown or single-file HTML.** `agent-session-exporter` reads local history written by GitHub Copilot CLI, Claude Code, and OpenAI Codex CLI, then exports a chosen session as a faithful, self-contained report. The CLI binary is named `recall`.
+**Export coding-agent CLI sessions to Markdown or single-file HTML.** `agent-session-manager` reads local history written by GitHub Copilot CLI, Claude Code, and OpenAI Codex CLI, then exports a chosen session as a faithful, self-contained report. The CLI binary is named `chronicle`.
 
 The HTML output is a close replica of Copilot CLI's built-in `/share html`
 layout (Primer theme, sticky header, filter pills, sidebar map,
@@ -21,14 +21,14 @@ It is read-only against agent state directories. It does **not** write to `.copi
 
 | Goal | Command |
 |---|---|
-| List known sessions | `recall list --agent all` |
-| Search local history | `recall search "keyword" --agent all` |
-| Print one session | `recall show <session-id> --agent claude` |
-| Export to Markdown (Copilot `/share file`-style) | `recall md <session-id> -o session.md` |
-| Export to HTML (close Copilot `/share html` replica) | `recall html <session-id> -o session.html` |
-| Read a session file from anywhere (scp'd / restored) | `recall html --file /path/to/events.jsonl -o session.html` |
-| Search a restored backup cache directory | `recall search "keyword" --file /path/to/restored-cache` |
-| Run backup (restic wrapper) | `recall backup run --dry-run` |
+| List known sessions | `chronicle list --agent all` |
+| Search local history | `chronicle search "keyword" --agent all` |
+| Print one session | `chronicle show <session-id> --agent claude` |
+| Export to Markdown (Copilot `/share file`-style) | `chronicle md <session-id> -o session.md` |
+| Export to HTML (close Copilot `/share html` replica) | `chronicle html <session-id> -o session.html` |
+| Read a session file from anywhere (scp'd / restored) | `chronicle html --file /path/to/events.jsonl -o session.html` |
+| Search a restored backup cache directory | `chronicle search "keyword" --file /path/to/restored-cache` |
+| Run backup (restic wrapper) | `chronicle backup run --dry-run` |
 
 Supported agents:
 
@@ -48,18 +48,18 @@ without first placing files back under `~/.copilot`.
 This package is not on npm. Clone and link locally — this is the supported path until a single-binary release lands:
 
 ```bash
-git clone https://github.com/TMYTiMidlY/agent-session-exporter.git
-cd agent-session-exporter
+git clone https://github.com/TMYTiMidlY/agent-session-manager.git
+cd agent-session-manager
 pnpm install
 pnpm build
-pnpm --filter @agent-session-exporter/cli exec npm link    # makes `recall` global
-recall list --agent all
+pnpm --filter @agent-session-manager/cli exec npm link    # makes `chronicle` global
+chronicle list --agent all
 ```
 
 To uninstall:
 
 ```bash
-pnpm --filter @agent-session-exporter/cli exec npm unlink -g
+pnpm --filter @agent-session-manager/cli exec npm unlink -g
 ```
 
 Single-binary releases (`bun build --compile` for macOS / Linux / Windows) and `npm i -g github:...` one-liner install are tracked in [Roadmap](#roadmap).
@@ -80,7 +80,7 @@ node packages/cli/dist/index.js list --agent all
 For local development, use the workspace script:
 
 ```bash
-pnpm recall -- search "keyword" --agent all
+pnpm chronicle -- search "keyword" --agent all
 ```
 
 ## First run
@@ -105,13 +105,13 @@ The HTML file is standalone: search, filters, collapsible entries, sidebar map, 
 
 ## CLI reference
 
-### `recall list`
+### `chronicle list`
 
 Print discovered sessions as tab-separated rows:
 
 ```bash
-recall list --agent all
-recall list --agent claude --claude-root /path/to/claude/projects
+chronicle list --agent all
+chronicle list --agent claude --claude-root /path/to/claude/projects
 ```
 
 Group the listing with `--by project` or `--by agent` (default: flat list).
@@ -119,36 +119,36 @@ Project is the nearest `.git` ancestor of a session's recorded cwd; sessions
 whose cwd is not under a git repo fall into an `(unscoped)` bucket:
 
 ```bash
-recall list --by project     # cluster sessions per repository
-recall list --by agent       # group by copilot / claude / codex
+chronicle list --by project     # cluster sessions per repository
+chronicle list --by agent       # group by copilot / claude / codex
 ```
 
 Grouped mode prints a `# <group> (<count>)` header per group (groups sorted,
 sessions within a group by last activity newest-first), then tab-separated rows
 of `group`, `agent`, `session-id`, `last-activity`, `entry-count`.
 
-### `recall search`
+### `chronicle search`
 
 Search user, assistant, reasoning, tool, system, and event text:
 
 ```bash
-recall search "database migration" --agent all --limit 20
+chronicle search "database migration" --agent all --limit 20
 ```
 
 Each hit is a tab-separated row led by a `project` column (the nearest `.git`
 ancestor of the recorded cwd, or `(unscoped)`): `project`, `agent`,
 `session-id`, `#entry`, `role/kind`, `excerpt`.
 
-### `recall show`
+### `chronicle show`
 
 Print a session as text or JSON:
 
 ```bash
-recall show <session-id> --agent codex
-recall show <session-id> --agent codex --format json
+chronicle show <session-id> --agent codex
+chronicle show <session-id> --agent codex --format json
 ```
 
-### `recall html`
+### `chronicle html`
 
 Write a self-contained HTML report. It closely follows Copilot CLI
 `/share html` (sticky header, filter pills, sidebar map, search,
@@ -174,11 +174,11 @@ Deliberate differences include:
   receipt. See [`docs/copilot-timeline.md`](docs/copilot-timeline.md).
 
 ```bash
-recall html <session-id> --agent copilot -o report.html
-recall html <session-id> -s agent-summary.html -o report.html   # pin an HTML summary on top
+chronicle html <session-id> --agent copilot -o report.html
+chronicle html <session-id> -s agent-summary.html -o report.html   # pin an HTML summary on top
 ```
 
-### `recall md`
+### `chronicle md`
 
 Export a session as Markdown that follows Copilot CLI `/share file`
 conventions (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stamps,
@@ -186,30 +186,30 @@ conventions (`### 💬/👤/🔧/✅` headings, `<sub>⏱️</sub>` elapsed stam
 block).
 
 ```bash
-recall md <session-id> --agent copilot -o report.md
-recall md <session-id> --no-reasoning -o report.md             # drop reasoning entries
-recall md <session-id> -s summary.md -o report.md              # inject a markdown summary
+chronicle md <session-id> --agent copilot -o report.md
+chronicle md <session-id> --no-reasoning -o report.md             # drop reasoning entries
+chronicle md <session-id> -s summary.md -o report.md              # inject a markdown summary
 ```
 
-### `recall backup`
+### `chronicle backup`
 
 `backup` is a command group:
 
 ```bash
-recall backup run --dry-run     # preview the restic backup
-recall backup run               # run the restic backup wrapper (backup.sh)
-recall backup                   # back-compat alias for `backup run`
-recall backup cache latest --target ~/.cache/recall/restic-cache   # restore a snapshot into a cache dir
+chronicle backup run --dry-run     # preview the restic backup
+chronicle backup run               # run the restic backup wrapper (backup.sh)
+chronicle backup                   # back-compat alias for `backup run`
+chronicle backup cache latest --target ~/.cache/chronicle/restic-cache   # restore a snapshot into a cache dir
 ```
 
 `backup cache` restores agent history from a restic snapshot into a **local cache directory** (never into the live `~/.copilot`, `~/.claude`, or `~/.codex` — that is refused), so read commands can later work over it with `--file` (and, in future, `--source cache`). Add `--host <h>` to pin a snapshot host and `--dry-run` to print the restic command without running it.
 
-Backup is a source for future recall/search work. Current search reads live local history; a *persistent* index over restored backup caches is tracked separately (issue #1). For ad-hoc work today, restore a snapshot and point any read command at it with `--file`:
+Backup is a source for future chronicle/search work. Current search reads live local history; a *persistent* index over restored backup caches is tracked separately (issue #1). For ad-hoc work today, restore a snapshot and point any read command at it with `--file`:
 
 ```bash
 restic restore latest --target /tmp/cache          # restore a snapshot
-recall search "keyword" --file /tmp/cache           # search the restored cache
-recall html <session-id> --file /tmp/cache -o s.html
+chronicle search "keyword" --file /tmp/cache           # search the restored cache
+chronicle html <session-id> --file /tmp/cache -o s.html
 ```
 
 ### Reading sessions from outside the live agent homes
@@ -220,17 +220,17 @@ recall html <session-id> --file /tmp/cache -o s.html
 
 ```bash
 # a single session file copied off another machine (agent auto-detected)
-recall show --file ~/dl/events.jsonl --format json
-recall html --file ~/dl/events.jsonl -o report.html
+chronicle show --file ~/dl/events.jsonl --format json
+chronicle html --file ~/dl/events.jsonl -o report.html
 
 # a whole directory (walked for *.jsonl; each file's agent auto-detected)
-recall list --file /tmp/restored-cache
-recall search "migration" --file /tmp/restored-cache
+chronicle list --file /tmp/restored-cache
+chronicle search "migration" --file /tmp/restored-cache
 ```
 
 When `--file` points at a single file, the `<session-id>` argument is optional.
 When it points at a directory that yields more than one session, pass a
-`<session-id>` to pick one (use `recall list --file <dir>` to see the ids).
+`<session-id>` to pick one (use `chronicle list --file <dir>` to see the ids).
 
 ## Documentation
 
@@ -277,8 +277,8 @@ restic init
 Then run:
 
 ```bash
-recall backup run --dry-run
-recall backup run
+chronicle backup run --dry-run
+chronicle backup run
 ```
 
 Keep `RESTIC_PASSWORD` in a password manager or another device. If you lose it, encrypted backups cannot be read.
@@ -289,16 +289,16 @@ Example unit files live in `systemd/`:
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp systemd/agent-session-exporter.service.example ~/.config/systemd/user/agent-session-exporter.service
-cp systemd/agent-session-exporter.timer.example ~/.config/systemd/user/agent-session-exporter.timer
+cp systemd/agent-session-manager.service.example ~/.config/systemd/user/agent-session-manager.service
+cp systemd/agent-session-manager.timer.example ~/.config/systemd/user/agent-session-manager.timer
 ```
 
-Edit `agent-session-exporter.service` so paths point at your checkout, then:
+Edit `agent-session-manager.service` so paths point at your checkout, then:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now agent-session-exporter.timer
-systemctl --user list-timers agent-session-exporter.timer
+systemctl --user enable --now agent-session-manager.timer
+systemctl --user list-timers agent-session-manager.timer
 ```
 
 If the timer should run while you are logged out, enable user lingering with your OS administrator account.
@@ -310,10 +310,10 @@ If the timer should run while you are logged out, enable user lingering with you
 | `packages/core` | Agent discovery, parsers, normalized timeline model, search |
 | `packages/markdown` | Markdown renderer following Copilot `/share file` conventions |
 | `packages/html` | React-based single-file HTML renderer providing a close Copilot `/share html` replica |
-| `packages/cli` | `recall` command |
+| `packages/cli` | `chronicle` command |
 | `fixtures` | Redacted parser and CLI fixtures |
 | [`tools/copilot`](tools/copilot/) | Copilot `/share` bundle drift oracle (research only; not a runtime dependency) |
-| `backup.sh` | restic wrapper used by `recall backup` |
+| `backup.sh` | restic wrapper used by `chronicle backup` |
 
 ## Prior art / related projects
 
@@ -340,7 +340,7 @@ tool. A read-only mirror of each project is kept in a local
 | [HizTam/codex-history-viewer](https://github.com/HizTam/codex-history-viewer) | 19 | TS | VS Code extension | Claude + Codex | Browse + resume from inside VS Code |
 | [dotneet/agent-session-view](https://github.com/dotneet/agent-session-view) | 10 | TS (Bun) | Web + Ink TUI | Claude + Codex | Multiple export formats (text + HTML) |
 
-### Where `agent-session-exporter` is different
+### Where `agent-session-manager` is different
 
 1. **GitHub Copilot CLI is a first-class adapter.** None of the projects above currently parse `~/.copilot/session-state/*/events.jsonl`.
 2. **Output stays close to Copilot CLI's `/share file` and `/share html`
@@ -352,7 +352,7 @@ tool. A read-only mirror of each project is kept in a local
    entries that existed only in live memory. See
    [`docs/copilot-timeline.md`](docs/copilot-timeline.md).
 3. **Single-file HTML is the default deliverable.** ~1 MB, no server, no build, opens by double-click. (Most peers ship a Tauri app, an Express/FastAPI web app, or a TUI; the only static-HTML peers are Simon's `claude-code-transcripts` (Claude-only) and `daaain/claude-code-log` (Claude-only).)
-4. **Library + CLI, not just an app.** `@agent-session-exporter/core`, `/markdown`, `/html` are independently importable for downstream tools that want the parser or renderer without the CLI.
+4. **Library + CLI, not just an app.** `@agent-session-manager/core`, `/markdown`, `/html` are independently importable for downstream tools that want the parser or renderer without the CLI.
 5. **No live agent SDK coupling.** Read-only, no Anthropic / OpenAI / GitHub API calls for normal operation; no ToS surface area like `claude-code-viewer` has had to navigate.
 
 ### Things we learned from the field (and intend to adopt)
@@ -362,7 +362,7 @@ These are tracked as GitHub issues with explicit `Inspired by …` references in
 - **Project-hierarchy index page** that links to every session HTML (à la `claude-code-log`).
 - **Token / cost analytics view** for sessions (à la `token-dashboard`).
 - **Live tail mode** for an open session (à la `claude-code-trace` / `tail-claude`).
-- **Project-grouped sidebar** for `recall list` (à la `agent-session-viewer`, `codex-history-viewer`).
+- **Project-grouped sidebar** for `chronicle list` (à la `agent-session-viewer`, `codex-history-viewer`).
 - **VS Code extension wrapper** as a separate package (à la `codex-history-viewer`).
 - **Static export tarball for Pages hosting** (à la `claude-code-transcripts`).
 
@@ -380,8 +380,8 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 ## Roadmap
 
 - **Single-file distribution.** Bundle the CLI with `bun build --compile` and attach native binaries to GitHub Releases; add a `npm i -g github:...` one-liner once workspace bundling is set up.
-- **Persistent index/cache search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`). Ad-hoc search over a restored cache directory already works via `recall search --file <dir>`; the remaining work is the `recall backup cache` restore helper plus a durable SQLite/FTS index.
-- **Move the old `dredge-up` skill into a thin wrapper that calls `recall`.** `recall` now matches the skill's Copilot entry-type coverage (subagent / skill / plan, plus the compaction / task_complete / warning / error types the adapter used to drop) and both of its outputs (`md` + single-file `html`), so this wrapper is unblocked.
+- **Persistent index/cache search over restic-restored backup snapshots** (originally tracked as issue #1 in the predecessor `session-trace` repo — see `docs/issues/search-restic-backups.md`). Ad-hoc search over a restored cache directory already works via `chronicle search --file <dir>`; the remaining work is the `chronicle backup cache` restore helper plus a durable SQLite/FTS index.
+- **Move the old `dredge-up` skill into a thin wrapper that calls `chronicle`.** `chronicle` now matches the skill's Copilot entry-type coverage (subagent / skill / plan, plus the compaction / task_complete / warning / error types the adapter used to drop) and both of its outputs (`md` + single-file `html`), so this wrapper is unblocked.
 - **Improve adapter fidelity for every agent format.**
 - **Project-hierarchy index page** (inspired by `daaain/claude-code-log`).
 - **Token / cost analytics view** (inspired by `nateherkai/token-dashboard`).

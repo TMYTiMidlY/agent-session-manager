@@ -1,5 +1,5 @@
 {
-  "name": "@agent-session-exporter/core",
+  "name": "@agent-session-manager/core",
   "version": "0.1.0",
   "type": "module",
   "exports": {

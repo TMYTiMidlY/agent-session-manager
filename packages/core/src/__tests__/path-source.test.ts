@@ -68,7 +68,7 @@ describe("discoverPath", () => {
   });
 
   it("searches a restic-cache-style directory copied elsewhere", async () => {
-    const cache = await mkdtemp(join(process.cwd(), ".core-recall-cache-"));
+    const cache = await mkdtemp(join(process.cwd(), ".core-chronicle-cache-"));
     scratchDirectories.push(cache);
     await cp(fixtures, cache, { recursive: true });
     const hits = await searchRefs(await discoverPath(cache), "gamma");

@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import type { ParsedSession } from "@agent-session-exporter/core";
+import type { ParsedSession } from "@agent-session-manager/core";
 import { sourceLabelForSession, summaryMismatchWarning } from "./render-options.js";
 
 const execFileAsync = promisify(execFile);
@@ -13,7 +13,7 @@ const repoRoot = resolve(packageRoot, "../..");
 const tsx = resolve(repoRoot, "node_modules/.bin/tsx");
 const cli = resolve(packageRoot, "src/index.ts");
 
-describe("recall cli", () => {
+describe("chronicle cli", () => {
   it("searches fixture sessions through root overrides", async () => {
     const { stdout } = await execFileAsync(tsx, [
       cli,

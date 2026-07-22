@@ -1,8 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command } from "commander";
-import { parseSession } from "@agent-session-exporter/core";
-import { renderSessionMarkdown } from "@agent-session-exporter/markdown";
+import { parseSession } from "@agent-session-manager/core";
+import { renderSessionMarkdown } from "@agent-session-manager/markdown";
 import { withAgent, withRoots, withSource } from "../options/common.js";
 import { resolveOne } from "../options/resolve.js";
 import { readOptionalFile } from "../util/io.js";

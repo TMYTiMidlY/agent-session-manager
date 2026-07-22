@@ -8,7 +8,7 @@ describe("buildProgram", () => {
   });
 
   it("names the binary from the shared brand constant", () => {
-    expect(buildProgram().name()).toBe("recall");
+    expect(buildProgram().name()).toBe("chronicle");
   });
 
   it("keeps the markdown alias on the md command", () => {

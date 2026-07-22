@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { deriveProject, searchRefs } from "@agent-session-exporter/core";
+import { deriveProject, searchRefs } from "@agent-session-manager/core";
 import { withAgent, withRoots, withSource } from "../options/common.js";
 import { resolveRefs } from "../options/resolve.js";
 

@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { summarizeSession, type SessionSummary } from "@agent-session-exporter/core";
+import { summarizeSession, type SessionSummary } from "@agent-session-manager/core";
 import { withReadSource } from "../options/common.js";
 import { resolveRefs } from "../options/resolve.js";
 

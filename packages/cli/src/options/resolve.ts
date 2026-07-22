@@ -7,7 +7,7 @@ import {
   type AgentKind,
   type AgentRoots,
   type SessionRef,
-} from "@agent-session-exporter/core";
+} from "@agent-session-manager/core";
 import { BIN_NAME } from "../brand.js";
 
 export function parseAgents(value: string): AgentKind[] {

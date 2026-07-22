@@ -23,7 +23,7 @@ The two export paths are therefore:
 
 - **Official live export:** runtime event → Copilot's event-to-entry mapper →
   in-memory timeline → `/share html`.
-- **Offline `recall` export:** persisted event in `events.jsonl` → `recall`'s
+- **Offline `chronicle` export:** persisted event in `events.jsonl` → `chronicle`'s
   event-to-entry mapper → normalized timeline entry → HTML or Markdown.
 
 The core maintenance hazard follows directly:
@@ -43,7 +43,7 @@ The official `/share html` bundle has a fixed set of 12 filter classes:
 `user`, `copilot`, `tool`, `reasoning`, `info`, `warning`, `error`, `group`,
 `notification`, `handoff`, `compaction`, and `task_complete`.
 
-`recall` additionally exposes `subagent`, `skill`, and `plan` entries, and can
+`chronicle` additionally exposes `subagent`, `skill`, and `plan` entries, and can
 pin a summary card above the reconstructed timeline. These are deliberate
 extensions beyond the official filter set.
 
@@ -52,7 +52,7 @@ extensions beyond the official filter set.
 Persisted `assistant.message` events can contain `reasoningText`, but Copilot's
 live event-to-entry mapping does not add that field to the official timeline.
 Consequently, observed official exports report zero reasoning entries for this
-data. `recall` deliberately splits `reasoningText` into a separate reasoning
+data. `chronicle` deliberately splits `reasoningText` into a separate reasoning
 entry during offline reconstruction.
 
 ## Data that offline export cannot recover

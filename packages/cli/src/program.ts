@@ -7,7 +7,7 @@ import { buildHtmlCommand } from "./commands/html.js";
 import { buildMdCommand } from "./commands/md.js";
 import { buildBackupCommand } from "./commands/backup/index.js";
 
-/** Assemble the root `recall` program with every command attached. Exported so tests can drive it. */
+/** Assemble the root `chronicle` program with every command attached. Exported so tests can drive it. */
 export function buildProgram(): Command {
   const program = new Command();
   program

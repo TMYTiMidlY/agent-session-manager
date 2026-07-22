@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderSessionHtml } from "./index.js";
-import type { ParsedSession } from "@agent-session-exporter/core";
+import type { ParsedSession } from "@agent-session-manager/core";
 
 function baseSession(entries: ParsedSession["entries"]): ParsedSession {
   return {
@@ -18,10 +18,10 @@ function entryTag(html: string, index: number | "summary"): string {
 describe("renderSessionHtml", () => {
   it("renders a standalone HTML document with a single user entry", async () => {
     const html = await renderSessionHtml(baseSession([
-      { index: 0, role: "user", kind: "message", text: "hello recall" },
+      { index: 0, role: "user", kind: "message", text: "hello chronicle" },
     ]));
     expect(html).toContain("<!doctype html>");
-    expect(html).toContain("hello recall");
+    expect(html).toContain("hello chronicle");
     expect(html).toContain('id="search"');
     expect(html).toContain('data-filter="user"');
   });

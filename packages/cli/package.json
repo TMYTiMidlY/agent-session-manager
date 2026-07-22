@@ -1,9 +1,9 @@
 {
-  "name": "@agent-session-exporter/cli",
+  "name": "@agent-session-manager/cli",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "recall": "./dist/index.js"
+    "chronicle": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -11,9 +11,9 @@
     "test": "vitest run src"
   },
   "dependencies": {
-    "@agent-session-exporter/core": "workspace:*",
-    "@agent-session-exporter/html": "workspace:*",
-    "@agent-session-exporter/markdown": "workspace:*",
+    "@agent-session-manager/core": "workspace:*",
+    "@agent-session-manager/html": "workspace:*",
+    "@agent-session-manager/markdown": "workspace:*",
     "commander": "^14.0.0"
   }
 }

@@ -1,4 +1,4 @@
-# ADR 0001: Scope and stack for agent-session-exporter
+# ADR 0001: Scope and stack for agent-session-manager
 
 ## Status
 
@@ -12,13 +12,13 @@ The backup layer remains useful, but only as one archive source. We are not tryi
 
 ## Decision
 
-Use the repository name `agent-session-exporter` and expose a short CLI binary named `recall`.
+Use the repository name `agent-session-manager` and expose a short CLI binary named `chronicle`.
 
 Implement the project as a pnpm-managed TypeScript workspace:
 
 - `packages/core`: agent adapters, discovery, parsing, and search.
 - `packages/html`: React-based single-file HTML rendering from normalized timeline entries.
-- `packages/cli`: the `recall` command.
+- `packages/cli`: the `chronicle` command.
 - `fixtures`: small redacted samples for parser tests.
 
 The HTML path is React-only. The old vanilla Copilot `/share html` replication
@@ -33,5 +33,5 @@ Copilot releases; it is not the maintained render path or a runtime dependency.
 - Backup commands may still call restic, but backup is not the primary product boundary.
 - `tools/copilot/extract-share-assets.cjs` may be re-run after Copilot upgrades
   to inspect bundle drift, but its generated assets are not shipped by
-  `recall`.
+  `chronicle`.
 - Community projects such as `claude-code-trace`, `codex-trace`, and `code-chat-viewer` are references for schema coverage and UX, not dependencies to embed.

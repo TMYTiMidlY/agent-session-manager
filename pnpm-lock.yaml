@@ -29,13 +29,13 @@ importers:
 
   packages/cli:
     dependencies:
-      '@agent-session-exporter/core':
+      '@agent-session-manager/core':
         specifier: workspace:*
         version: link:../core
-      '@agent-session-exporter/html':
+      '@agent-session-manager/html':
         specifier: workspace:*
         version: link:../html
-      '@agent-session-exporter/markdown':
+      '@agent-session-manager/markdown':
         specifier: workspace:*
         version: link:../markdown
       commander:
@@ -46,7 +46,7 @@ importers:
 
   packages/html:
     dependencies:
-      '@agent-session-exporter/core':
+      '@agent-session-manager/core':
         specifier: workspace:*
         version: link:../core
       '@shikijs/engine-javascript':
@@ -91,7 +91,7 @@ importers:
 
   packages/markdown:
     dependencies:
-      '@agent-session-exporter/core':
+      '@agent-session-manager/core':
         specifier: workspace:*
         version: link:../core
 
