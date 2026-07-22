@@ -8,6 +8,7 @@ import {
   type AgentRoots,
   type SessionRef,
 } from "@agent-session-exporter/core";
+import { BIN_NAME } from "../brand.js";
 
 export function parseAgents(value: string): AgentKind[] {
   if (value === "all") return AGENTS;
@@ -49,7 +50,7 @@ export async function resolveOne(id: string | undefined, opts: Record<string, un
     if (refs.length === 0) throw new Error(`no sessions found in --file path: ${file}`);
     if (!id) {
       if (refs.length === 1) return refs[0];
-      throw new Error(`--file matched ${refs.length} sessions; pass a <session-id> to pick one ('recall list --file ${file}')`);
+      throw new Error(`--file matched ${refs.length} sessions; pass a <session-id> to pick one ('${BIN_NAME} list --file ${file}')`);
     }
     const ref = findSessionAmong(refs, id);
     if (!ref) throw new Error(`session not found in --file path: ${id}`);
