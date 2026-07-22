@@ -114,6 +114,19 @@ recall list --agent all
 recall list --agent claude --claude-root /path/to/claude/projects
 ```
 
+Group the listing with `--by project` or `--by agent` (default: flat list).
+Project is the nearest `.git` ancestor of a session's recorded cwd; sessions
+whose cwd is not under a git repo fall into an `(unscoped)` bucket:
+
+```bash
+recall list --by project     # cluster sessions per repository
+recall list --by agent       # group by copilot / claude / codex
+```
+
+Grouped mode prints a `# <group> (<count>)` header per group (groups sorted,
+sessions within a group by last activity newest-first), then tab-separated rows
+of `group`, `agent`, `session-id`, `last-activity`, `entry-count`.
+
 ### `recall search`
 
 Search user, assistant, reasoning, tool, system, and event text:
@@ -121,6 +134,10 @@ Search user, assistant, reasoning, tool, system, and event text:
 ```bash
 recall search "database migration" --agent all --limit 20
 ```
+
+Each hit is a tab-separated row led by a `project` column (the nearest `.git`
+ancestor of the recorded cwd, or `(unscoped)`): `project`, `agent`,
+`session-id`, `#entry`, `role/kind`, `excerpt`.
 
 ### `recall show`
 
