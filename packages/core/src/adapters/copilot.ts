@@ -1,5 +1,5 @@
 import { basename, dirname } from "node:path";
-import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail } from "../types.js";
+import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail, ToolResultKind } from "../types.js";
 import { contentToText } from "../text.js";
 import { expandHome, readJsonl, walkFiles } from "../fs.js";
 import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
@@ -52,12 +52,13 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
   const entries: TimelineEntry[] = [];
   let cwd = ref.cwd;
   let startedAt = ref.startedAt;
+  let updatedAt = ref.updatedAt;
   let title = ref.title;
   let repository = ref.repository;
   const branch = ref.branch;
 
-  /** start events waiting for their matching complete event, keyed by callId */
-  const pendingStarts = new Map<string, { name?: string; args?: unknown; intentionSummary?: string; partialOutput?: string; timestamp?: string }>();
+  /** tool entries waiting for their matching complete event, keyed by callId */
+  const pendingTools = new Map<string, TimelineEntry>();
   /** subagent.started entries waiting for their subagent.completed stats, keyed by toolCallId */
   const pendingSubagents = new Map<string, TimelineEntry>();
   /** timestamp of the last session.compaction_start, to derive compaction duration */
@@ -75,6 +76,7 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     const data = (event.data ?? {}) as Record<string, unknown>;
     const type = String(event.type ?? "event");
     const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
+    updatedAt = timestamp ?? updatedAt;
 
     if (type === "session.start") {
       const context = (data.context ?? {}) as Record<string, unknown>;
@@ -114,42 +116,28 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
 
     if (type === "tool.execution_start") {
       const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
-      if (callId) {
-        pendingStarts.set(callId, {
-          name: typeof data.toolName === "string" ? data.toolName : undefined,
-          args: data.arguments,
-          intentionSummary: typeof data.intentionSummary === "string" ? data.intentionSummary : undefined,
-          partialOutput: typeof data.partialOutput === "string" ? data.partialOutput : undefined,
-          timestamp,
-        });
-      } else {
-        // orphan start (no callId): emit a tool entry now so it isn't lost
-        push(toolEntryFromStart(data, timestamp, type));
-      }
+      const entry = push(toolEntryFromStart(data, timestamp, type));
+      if (callId) pendingTools.set(callId, entry);
       continue;
     }
 
     if (type === "tool.execution_complete") {
       const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
-      const start = callId ? pendingStarts.get(callId) : undefined;
-      if (callId) pendingStarts.delete(callId);
-      const tool: ToolDetail = {
-        callId,
-        name: start?.name ?? (typeof data.toolName === "string" ? data.toolName : undefined),
-        arguments: start?.args ?? data.arguments,
-        intentionSummary: start?.intentionSummary ?? (typeof data.intentionSummary === "string" ? data.intentionSummary : undefined),
-        partialOutput: start?.partialOutput,
-        result: normaliseToolResult(data),
-      };
-      push({
-        role: "tool",
-        kind: "tool",
-        title: tool.name,
-        text: tool.result?.log ?? "",
-        timestamp: start?.timestamp ?? timestamp,
-        rawType: type,
-        tool,
-      });
+      const entry = (callId ? pendingTools.get(callId) : undefined)
+        ?? push(toolEntryFromStart(data, timestamp, type));
+      if (callId) pendingTools.delete(callId);
+
+      const tool = entry.tool ?? { result: { type: "pending" } };
+      tool.callId ??= callId;
+      tool.name ??= typeof data.toolName === "string" ? data.toolName : undefined;
+      tool.arguments ??= data.arguments;
+      tool.intentionSummary ??= typeof data.intentionSummary === "string" ? data.intentionSummary : undefined;
+      tool.partialOutput = partialOutput(data.partialOutput) ?? tool.partialOutput;
+      tool.result = normaliseToolResult(data);
+      entry.tool = tool;
+      entry.title = tool.name;
+      entry.text = tool.result?.log ?? "";
+      entry.rawType = type;
       continue;
     }
 
@@ -351,30 +339,10 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     // the session.info(infoType=model) text version).
   }
 
-  // any leftover orphan starts (complete event never arrived) — show them as pending tools
-  for (const [callId, start] of pendingStarts) {
-    push({
-      role: "tool",
-      kind: "tool",
-      title: start.name,
-      text: "",
-      timestamp: start.timestamp,
-      rawType: "tool.execution_start",
-      tool: {
-        callId,
-        name: start.name,
-        arguments: start.args,
-        intentionSummary: start.intentionSummary,
-        partialOutput: start.partialOutput,
-        result: { type: "pending" },
-      },
-    });
-  }
-
   return {
     ...ref,
     startedAt,
-    updatedAt: entries.at(-1)?.timestamp,
+    updatedAt,
     cwd,
     title,
     repository,
@@ -423,6 +391,7 @@ function stringOrEmpty(value: unknown): string {
 }
 
 function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | undefined, rawType: string): Omit<TimelineEntry, "index"> {
+  const callId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
   const name = typeof data.toolName === "string" ? data.toolName : undefined;
   return {
     role: "tool",
@@ -432,9 +401,11 @@ function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | u
     timestamp,
     rawType,
     tool: {
+      callId,
       name,
       arguments: data.arguments,
       intentionSummary: typeof data.intentionSummary === "string" ? data.intentionSummary : undefined,
+      partialOutput: partialOutput(data.partialOutput),
       result: { type: "pending" },
     },
   };
@@ -442,36 +413,42 @@ function toolEntryFromStart(data: Record<string, unknown>, timestamp: string | u
 
 function normaliseToolResult(data: Record<string, unknown>): ToolDetail["result"] {
   const success = data.success !== false;
-  if (!success && typeof data.error === "string") {
-    return { type: "failure", log: data.error };
-  }
   const raw = data.result;
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const obj = raw as Record<string, unknown>;
-    let log: string | undefined;
-    const content = obj.content;
-    if (typeof content === "string") {
-      log = content;
-    } else if (Array.isArray(content)) {
-      log = content.map((chunk) => {
-        if (chunk && typeof chunk === "object" && "text" in chunk && typeof (chunk as { text?: unknown }).text === "string") {
-          return (chunk as { text: string }).text;
-        }
-        return contentToText(chunk);
-      }).join("\n");
-    } else if (Object.keys(obj).length > 0) {
-      log = contentToText(obj);
-    }
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : undefined;
+  const explicitType = toolResultKind(obj?.type);
+  const type = explicitType ?? (success ? "success" : "failure");
+  const error = !success ? data.error ?? obj?.error : undefined;
+  const logSource = error ?? obj?.content ?? obj?.detailedContent ?? (typeof raw === "string" ? raw : undefined);
+  let log = logSource === undefined ? undefined : stringOrEmpty(logSource);
+
+  if (log === undefined && obj && Object.keys(obj).some((key) => key !== "type" && key !== "markdown")) {
+    log = contentToText(obj);
+  }
+
+  if (obj) {
     return {
-      type: success ? "success" : "failure",
+      type,
       log,
       markdown: obj.markdown === true,
     };
   }
-  if (typeof raw === "string") {
-    return { type: success ? "success" : "failure", log: raw };
+  return { type, log };
+}
+
+function partialOutput(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  return stringOrEmpty(value);
+}
+
+function toolResultKind(value: unknown): ToolResultKind | undefined {
+  // No distinct rejected/denied event encoding has been observed. Preserve
+  // those states only when a completion explicitly supplies result.type.
+  if (value === "success" || value === "failure" || value === "rejected" || value === "denied" || value === "pending") {
+    return value;
   }
-  return { type: success ? "success" : "pending" };
+  return undefined;
 }
 
 export function copilotRoots(root?: string): string {

@@ -1,0 +1,10 @@
+{"type":"session.start","data":{"sessionId":"core-tool-lifecycle","startTime":"2026-07-22T00:00:00.000Z","context":{"cwd":"/workspace/tool-lifecycle","repository":"fixture/tools"}},"timestamp":"2026-07-22T00:00:00.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"complete","toolName":"bash","arguments":{"command":"echo chronological"},"intentionSummary":"run the chronological command","partialOutput":"start output"},"timestamp":"2026-07-22T00:00:01.000Z"}
+{"type":"user.message","data":{"content":"message between tool start and completion"},"timestamp":"2026-07-22T00:00:02.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"complete","success":true,"partialOutput":"complete output","result":{"type":"success","content":"command finished"}},"timestamp":"2026-07-22T00:00:03.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"pending","toolName":"read","arguments":{"path":"pending.txt"},"partialOutput":"pending output"},"timestamp":"2026-07-22T00:00:04.000Z"}
+{"type":"user.message","data":{"content":"message after pending tool"},"timestamp":"2026-07-22T00:00:05.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"failure","toolName":"bash","arguments":{"command":"exit 7"}},"timestamp":"2026-07-22T00:00:06.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"failure","success":false,"error":{"message":"command failed","code":7}},"timestamp":"2026-07-22T00:00:07.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"explicit","toolName":"custom","arguments":{"mode":"explicit"}},"timestamp":"2026-07-22T00:00:08.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"explicit","success":true,"result":{"type":"failure","content":"explicit failure result"}},"timestamp":"2026-07-22T00:00:09.000Z"}
