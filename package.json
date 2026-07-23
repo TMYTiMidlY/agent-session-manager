@@ -3,9 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "chronicle": "dist/chronicle.mjs"
+  },
+  "files": [
+    "dist"
+  ],
   "packageManager": "pnpm@10.11.0",
   "scripts": {
     "build": "pnpm -r build",
+    "bundle": "node scripts/bundle.mjs",
+    "binaries": "node scripts/build-binaries.mjs",
+    "prepare": "node scripts/bundle.mjs",
     "test": "pnpm -r --if-present test",
     "chronicle": "pnpm --filter @agent-session-manager/cli dev"
   },
@@ -15,6 +24,21 @@
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.9.0",
     "tsx": "^4.20.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.0.0",
+    "esbuild": "^0.28.1",
+    "commander": "^14.0.0",
+    "@shikijs/engine-javascript": "^4.3.0",
+    "@shikijs/langs": "^4.3.0",
+    "@shikijs/themes": "^4.3.0",
+    "@shikijs/types": "^4.3.0",
+    "katex": "^0.17.0",
+    "lucide-static": "^0.483.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "shiki": "^4.3.0"
   }
 }

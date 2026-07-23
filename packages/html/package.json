@@ -7,7 +7,8 @@
   },
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "gen:assets": "node scripts/gen-assets.mjs",
+    "build": "node scripts/gen-assets.mjs && tsc -p tsconfig.json",
     "test": "vitest run src/index.test.tsx"
   },
   "dependencies": {

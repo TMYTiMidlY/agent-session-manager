@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
@@ -10,8 +7,7 @@ import remarkMath from "remark-math";
 import type { HighlighterCore, LanguageInput, ThemeInput } from "@shikijs/types";
 import type { ParsedSession, TimelineEntry, ToolDetail, ToolResultKind } from "@agent-session-manager/core";
 import { LOSSY_SOURCE_WARNING } from "@agent-session-manager/core";
-
-const require = createRequire(import.meta.url);
+import { ICONS, KATEX_CSS } from "./assets.generated.js";
 
 /* ─────────────────────────────────────────────── syntax highlighting ── */
 
@@ -204,24 +200,11 @@ function entryFilterKey(entry: TimelineEntry): FilterKey {
 
 /* ─────────────────────────────────────────────── icons ────────────────── */
 
-let _iconRoot: string | null = null;
-function iconRoot(): string {
-  if (_iconRoot) return _iconRoot;
-  const pkg = require.resolve("lucide-static/package.json");
-  _iconRoot = join(dirname(pkg), "icons");
-  return _iconRoot;
-}
-
 const ICON_CACHE = new Map<string, string>();
 function icon(name: string, size = 16): string {
   const key = `${name}@${size}`;
   if (ICON_CACHE.has(key)) return ICON_CACHE.get(key)!;
-  let svg: string;
-  try {
-    svg = readFileSync(join(iconRoot(), `${name}.svg`), "utf8");
-  } catch {
-    svg = `<svg width="${size}" height="${size}"></svg>`;
-  }
+  let svg = ICONS[name] ?? `<svg width="${size}" height="${size}"></svg>`;
   svg = svg
     .replace(/<!--[^]*?-->/g, "")
     .replace(/\bwidth="\d+"/, `width="${size}"`)
@@ -984,27 +967,8 @@ let _katexCss: string | null = null;
 
 function katexCss(): string {
   if (_katexCss !== null) return _katexCss;
-  try {
-    const cssPath = require.resolve("katex/dist/katex.min.css");
-    const cssDir = dirname(cssPath);
-    const raw = readFileSync(cssPath, "utf8");
-    _katexCss = raw.replace(/src:([^}]*)/g, (_match, sources: string) => {
-      const woff2 = sources.split(",").find((source) => source.includes(".woff2"));
-      if (!woff2) return "";
-      const embedded = woff2.replace(
-        /url\((?:["']?)(fonts\/[^)"']+\.woff2)(?:["']?)\)/,
-        (_url, relativePath: string) => {
-          const base64 = readFileSync(join(cssDir, relativePath)).toString("base64");
-          return `url(data:font/woff2;base64,${base64})`;
-        },
-      );
-      return `src:${embedded}`;
-    });
-    return _katexCss;
-  } catch {
-    _katexCss = "";
-    return _katexCss;
-  }
+  _katexCss = KATEX_CSS;
+  return _katexCss;
 }
 
 /* ─────────────────────────────────────────────── client + css ─────────── */
