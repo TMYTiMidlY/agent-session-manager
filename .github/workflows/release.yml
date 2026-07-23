@@ -1,14 +1,16 @@
 name: release
 
-# Cut a release with semantic-release: analyse Conventional Commits since the
-# last tag, derive the next version, update CHANGELOG.md + package.json (and
-# commit them back to main), build the native binaries, publish to npm, and
-# create a GitHub Release with the binaries attached.
+# Runs on push to main (and manual dispatch). semantic-release analyses
+# Conventional Commits since the last tag, derives the next version, updates
+# CHANGELOG.md + package.json (committed back to main), builds the native
+# binaries, publishes to npm, and creates a GitHub Release with the binaries.
 #
-# Manually triggered on purpose: running this workflow *is* the release
-# approval. It publishes to npm and pushes a release commit + tag, so it should
-# only run when you intend to ship. Requires an NPM_TOKEN secret with publish
-# rights to the `asmgr` package; GITHUB_TOKEN is provided automatically.
+# npm auth uses OIDC trusted publishing (`id-token: write`) — no NPM_TOKEN once
+# the `asmgr` package has a Trusted Publisher configured for this repo +
+# release.yml. A brand-new package must be bootstrapped once (manual
+# `npm publish` with 2FA, or a temporary token) before OIDC can work, because a
+# Trusted Publisher can only be attached to an already-published package.
+# GITHUB_TOKEN is provided automatically.
 
 on:
   push:
@@ -19,6 +21,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  id-token: write
 
 jobs:
   release:
@@ -53,4 +56,3 @@ jobs:
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
