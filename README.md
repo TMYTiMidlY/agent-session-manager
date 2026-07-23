@@ -7,9 +7,11 @@
 
 **把编码 agent 的 CLI 会话导出成 Markdown 或单文件 HTML。** `asmgr`（Agent Session ManaGeR）只读地读取 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI 写在本地的会话历史，再把选定的会话导出成一份忠实、自包含的报告。它是**一个**无 scope 的公开 npm 包，命令也叫 `asmgr`；HTML 与 Markdown 是它的导出能力，而非独立发布的产品。
 
-HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主题、sticky header、类型筛选 pill、侧栏目录、上一条/下一条用户消息跳转、搜索），差异[有专门文档记录](docs/copilot-timeline.md)。Markdown 产物遵循 Copilot CLI `/share file` 的结构与约定（`### 💬/👤/🔧/✅` 标题、`<sub>⏱️</sub>` 耗时戳、`<details>` 折叠、diff 围栏、`[!NOTE]` 头块）。
+HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主题、sticky header、类型筛选 pill、侧栏目录、上一条/下一条用户消息跳转、搜索），差异见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md)。Markdown 产物遵循 Copilot CLI `/share file` 的结构与约定（`### 💬/👤/🔧/✅` 标题、`<sub>⏱️</sub>` 耗时戳、`<details>` 折叠、diff 围栏、`[!NOTE]` 头块）。
 
-它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`，也不尝试把会话恢复回原 CLI。读命令（`list` / `search` / `show` / `html` / `md`）都严格本地——从不联系任何云端或会话同步后端、从不通过网络拉取会话历史。（唯一走网络的是 `backup`：它按你配置的 restic 远端做备份 / 恢复。）
+它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`。读命令（`list` / `search` / `show` / `html` / `md`）都严格本地——从不联系任何云端或会话同步后端、从不通过网络拉取会话历史。（唯一走网络的是 `backup`：它按你配置的 restic 远端做备份 / 恢复。）
+
+> **归档 ≠ 恢复。** 导出的报告是有损、只读、给人看的产物，**不能**反推回可 `--resume` 的原生会话。把会话忠实恢复到"另一台机器能续聊"是一条**规划中**的独立能力（来源 = 备份快照 ∪ 另一台机器），与只读归档严格分层——理念见 [ADR 0001](docs/adr/0001-scope-archive-and-restore.md) 与 [ADR 0004](docs/adr/0004-restore-fidelity-and-safety.md)。
 
 ## 功能
 
@@ -170,7 +172,7 @@ asmgr show <session-id> --agent codex --format json
 - **数据源回退警告 pill**，当解析器不得不读 `events.jsonl` 之外的东西时显示在 header；回退到 `db.turns` 时进一步说明「交互式用户决策与工具条目在此模式下不可恢复」。
 - **默认展开策略在其余方面沿用 Copilot bundle**：`user / assistant / error / task_complete` 展开，其它折叠。
 - **单行 info 条目**（模型切换 / 取消）默认展开而非折叠——与官方 bundle 不同，让「Model changed from X to Y」「Operation cancelled by user」这类一行信息一眼可见；多行 info 仍折叠。
-- **只存在于 live 内存的条目离线无法重建**，包括吉祥物启动横幅、临时重试提示、`/share` 成功回执。见 [`docs/copilot-timeline.md`](docs/copilot-timeline.md)。
+- **只存在于 live 内存的条目离线无法重建**，包括吉祥物启动横幅、临时重试提示、`/share` 成功回执。见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md) 与下文[「Copilot 时间线与离线映射」](#timeline-ref)。
 
 ```bash
 asmgr html <session-id> --agent copilot -o report.html
@@ -224,14 +226,78 @@ asmgr search "migration" --file /tmp/restored-cache
 
 `--file` 指向单个文件时，`<session-id>` 参数可省。指向的目录若产出多个会话，传一个 `<session-id>` 挑一个（用 `asmgr list --file <dir>` 看 id）。
 
-## 文档
+## 术语
 
-- [`docs/copilot-timeline.md`](docs/copilot-timeline.md) —— Copilot 的内存 timeline、持久化事件流、离线映射策略与保真度边界。
-- [`docs/backup.md`](docs/backup.md) —— 备份内容、排除项、保留策略、加密、面向恢复的架构。
+- **会话（Session）**：agent CLI 持久化的一次对话，可由 UUID、JSONL 路径，或某 agent 本地数据库中的一行标识。
+- **agent 适配器（Adapter）**：知道如何发现并解析某一家 agent 持久化格式的代码。当前适配 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI。
+- **事件（Event）**：agent 持久化流里的一条原始记录。Copilot 的事件存在 `events.jsonl`，是离线时间线重建的输入，而非 live `/share html` 直接渲染的对象。
+- **时间线条目（Timeline entry）**：时间线里的一个展示单元（用户消息、助手回复、reasoning 块、工具调用等）。Copilot 把 live 条目放内存里；`asmgr` 从持久化事件重建规范化条目，供搜索与渲染共用。
+- **归档（Archive / 只读检索）**：`asmgr` 只读地取回历史会话——搜索、文本显示、JSON 导出、给人看的 HTML/Markdown。归档**从不**把会话恢复回原 agent 的 live 状态。
+- **恢复（Restore）**：忠实重建**可 `--resume` 的原生会话状态**（规划中）。**归档 ≠ 恢复**：报告不可反推回可续聊的原生态。
+- **归档源（Archive source）**：可读取会话文件的地方——包括 live 本地 agent 目录，以及从 restic 恢复出来的备份缓存。
+
+## 设计文档（ADR）
+
+重要决策的理念记录在 [`docs/adr/`](docs/adr/)：
+
+- [ADR 0001](docs/adr/0001-scope-archive-and-restore.md) —— 范围、双面能力与"归档 ≠ 恢复"。
+- [ADR 0002](docs/adr/0002-single-package-asmgr-distribution.md) —— 单一 `asmgr` 包、能力而非产品、分发与发布。
+- [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md) —— 归档侧：从 `events.jsonl` 离线重建的保真度模型。
+- [ADR 0004](docs/adr/0004-restore-fidelity-and-safety.md) —— 恢复侧：忠实迁移的保真度与破坏性操作安全。
+
+## <a id="timeline-ref"></a>Copilot 时间线与离线映射（参考）
+
+> 为什么这样设计（内存 timeline vs 离线重建、单点映射风险、有意的离线扩展）见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md)；这里是具体清单与坑。
+
+**两种表示**：Copilot `/share html` 渲染 live 内存 timeline（`session.getTimelineEntries()`），不直接读 `events.jsonl`；timeline 为空时官方 bundle 只打印 `The session is empty.`。`asmgr` 离线只读 `events.jsonl` 重建。Compaction 可能在某个 event-id 边界截断 / 重写持久化流（确切边界随 Copilot 版本，需复验）。
+
+**官方 12 类筛选**：`user`、`copilot`、`tool`、`reasoning`、`info`、`warning`、`error`、`group`、`notification`、`handoff`、`compaction`、`task_complete`。`asmgr` 另加 `subagent`、`skill`、`plan`，并可在时间线顶部钉一张总结卡片——这些是超出官方集的有意扩展。与官方不同，`asmgr` 默认展开单行 info（模型切换 / 用户取消），多行 info 仍折叠。
+
+**离线不可重建的数据**（只在 live 内存、从不落盘，是硬限制而非 bug）：吉祥物启动横幅、`/share` 成功回执（`Session shared successfully to: …`）、临时重试提示。
+
+**操作坑**：
+- 当前 Copilot session id 是 `~/.copilot/session-state/<id>/` 的**目录名**，别因为某个 id 出现在对话正文里就复制它。
+- live `session-store.db` 常滞后最新一两轮——最近一轮可能还没进库，对当前会话导出是有损兜底。
+
+**原始事件三态策略**（解析器把每个原始事件归为 handled / 有意忽略 / unknown；计数与 `unknownTypes` 见 `src/core/adapters/copilot.ts`）：
+- **handled**：产出条目、更新元数据或与另一事件配对。当前族含 `session.start`、`user.message`、`assistant.message`、`tool.execution_start`、`tool.execution_complete`、`system.notification`、`session.info`、`abort`、error/warning 类、`handoff`、compaction 起止、`task_complete`、subagent 生命周期、`skill.invoked`、`session.plan_changed`。
+- **有意忽略**：类型已知但不应生成离线条目。`session.model_change` 让位于面向用户的 `session.info`（`infoType=model`）；其余有意丢弃：`session.resume`、`session.shutdown`、`session.mode_changed`、`session.context_changed`、`session.workspace_file_changed`、`session.binary_asset`、`session.permissions_changed`、`session.schedule_*`、`session.truncation`、`session.usage_checkpoint`、所有 `hook.*` 与 `assistant.turn_*`、`system.message`。
+- **unknown**：无映射也无显式忽略规则——unknown 计数是漂移警报，Copilot 变更时应排查。
+
+**置信度**：`getTimelineEntries()` 用法、空会话消息、12 类筛选、`reasoningText` 不对称、上列 live-only 条目——置信度高；compaction 时的文件截断机制置信度较低，需对新版本复验。Copilot 升级后重跑[漂移探针](#drift-oracle)并查 unknown 诊断。
 
 ## 备份配置
 
-> 具体备份哪些内容（逐目录）、`rewind-snapshots` 排除、端到端加密模型、网络架构，见 [`docs/backup.md`](docs/backup.md)。
+`asmgr backup`（`backup.sh` 的薄封装）用 [restic](https://restic.net) 对 agent 历史做加密、去重、增量备份。部署相关的值（restic 仓库 URL、凭据、到存储后端的确切网络路径）都放在 `secrets.env`（gitignore、`600`）——不进被跟踪的文件，让仓库里没有内网 IP / 主机名（见下文[「公开前的安全检查」](#safety)）。
+
+### 备份什么
+
+`backup.sh` 读 `BACKUP_AGENT_DIRS`（默认 `~/.copilot:~/.claude:~/.codex`），备份其中存在的 agent 主目录。以 Copilot（`~/.copilot`）为例：
+
+| 路径 | 典型大小 | 是什么 | 是否备份 |
+|---|---|---|---|
+| `session-state/<id>/events.jsonl` | 大（合计 GB 级） | 持久化的每会话事件流——resume 时回放、并被 `asmgr` 映射成离线条目 | ✅ 核心 |
+| `session-state/<id>/{checkpoints,files,research}/` | 中小 | 每会话产物（检查点、附件、research 笔记） | ✅ |
+| `session-store.db` | 数十 MB | 全会话的 SQLite 索引（摘要、turns、文件 / 引用索引、FTS） | ✅ —— 先 checkpoint WAL 保证副本自洽 |
+| `session-store.db-wal` / `-shm` | 小 | SQLite WAL / 共享内存（热文件） | ❌ 排除（`exclude.txt`） |
+| `*.lock`（如 `inuse.<pid>.lock`） | 极小 | 运行时锁文件 | ❌ 排除（`exclude.txt`） |
+| `logs/` | 很大（GB 级） | CLI 进程日志 | ❌ 始终排除（`backup.sh` 里）——量大、恢复价值低 |
+| `session-state/<id>/rewind-snapshots/` | 大（GB 级） | 支撑 `/rewind` 撤销功能的快照 | ⚠️ 可选——`BACKUP_EXCLUDE_REWIND=1` 时排除 |
+| `config.json`、`settings.json`、`mcp-config.json`、`servers/` | 极小 | CLI + MCP 配置 | ✅ |
+
+Claude Code（`~/.claude`）与 Codex（`~/.codex`）主目录存在时整体备份。
+
+**`rewind-snapshots/` 为什么可选**：Copilot 的 `/rewind` 靠 `~/.copilot/session-state/<id>/rewind-snapshots/`（一个 `index.json` 加快照数据）撤销本会话的编辑。设 `BACKUP_EXCLUDE_REWIND=1` 把它们排除——省的空间比任何单项排除都多，且**不影响** `/share html`、`--resume`、`asmgr`（后两者从始终备份的 `events.jsonl` 重建）；唯一失去的是对**恢复出来的**会话执行 `/rewind` 的能力。
+
+### 端到端加密与架构
+
+restic 跑在**客户端**，在数据离开主机前做**端到端 AES-256 加密**，再写入 **S3 兼容端点**（`RESTIC_REPOSITORY=s3:<endpoint>/<bucket>`；任何 restic 后端都行——rustfs / MinIO / SeaweedFS / AWS S3 / B2 / R2 / 本地路径 / sftp / rest）。后端只见密文，存储主机被攻破也不暴露你的历史。
+
+反面：`RESTIC_PASSWORD` 是整个仓库**唯一**的钥匙——丢了它，所有快照永久不可读。`restic init` 后立刻把它抄进密码管理器 / 另一台设备。
+
+到端点可能要过若干网络跳转（如 mesh 覆盖网 → 主机端口代理 → WSL2 端口转发 → 容器端口）；这条跳转链是部署相关、含内网地址的，记在 `secrets.env` 头部注释里而**非**本文件——换机重新部署时只改 `secrets.env`，`backup.sh` / `exclude.txt` / 本文都是通用的。
+
+### 配置与运行
 
 复制模板、填入你自己的后端：
 
@@ -272,6 +338,16 @@ asmgr backup run
 
 把 `RESTIC_PASSWORD` 存进密码管理器或另一台设备。丢了它，加密备份就再也读不出来。
 
+### 保留策略
+
+每次运行给快照打 `agent-session-manager` + `$(hostname)` 标签，然后：
+
+```
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+```
+
+> 迁移注记：快照标签历经 `session-recall` → `agent-session-exporter` → `agent-session-manager`。若把新 checkout 指向已有仓库，先对齐标签（如 `restic tag --set agent-session-manager --tag agent-session-exporter`，或加匹配的 `--keep-tag`），让 `forget` 按预期血缘 prune、而非遗弃旧快照。
+
 ## 用 systemd 自动备份
 
 示例 unit 文件在 `systemd/`：
@@ -292,6 +368,8 @@ systemctl --user list-timers agent-session-manager.timer
 
 若希望登出后 timer 仍运行，请用你的系统管理员账户开启 user lingering。
 
+> 只应有**一台**机器拥有该 timer。若从旧部署迁来（unit 曾指向别的 checkout、或快照打的是旧标签如 `session-recall`），先禁用并删掉旧 unit（`systemctl --user disable --now <old>.timer` 再删文件），以免跑两份备份或把保留血缘劈成两半。
+
 ## 目录结构
 
 `asmgr` 是**一个** npm 包；下面的 `src/*` 是它的内部模块（相对 import 串联），不是各自发布的包。
@@ -306,6 +384,16 @@ systemctl --user list-timers agent-session-manager.timer
 | `fixtures` | 脱敏的解析器与 CLI fixtures |
 | [`tools/copilot`](tools/copilot/) | Copilot `/share` bundle 漂移探针（仅逆向研究，非运行时依赖） |
 | `backup.sh` | `asmgr backup` 用的 restic 封装 |
+
+### <a id="drift-oracle"></a>漂移探针（`tools/copilot`）
+
+`tools/copilot/extract-share-assets.cjs` 是逆向研究辅助，**不在 `asmgr` 的渲染路径里**。它读取已安装的 `@github/copilot` 的 `app.js` bundle，重建其 JS 模板字符串里的运行时字符串，写出 `share-export.css` / `share-export.js`（**重建**而非逐字节复制——否则会保留双重转义、产出坏 CSS/JS）：
+
+```bash
+node tools/copilot/extract-share-assets.cjs [path/to/@github/copilot/app.js] [out-dir]
+```
+
+**为什么保留**：它是**漂移探针**。Copilot 升级可能改动时间线条目 / 筛选类、Primer 明暗主题规则、按钮 id 等 DOM 钩子。升级后重跑并 diff 上一次输出，把有意义的变化当作"复核离线事件映射与 React 渲染器"的提示，而不是自动搬进产物。维护中的 HTML 渲染器是 `src/html` 的 React 实现，不 import 也不发布这些抽取资产；仓库里目前没有大小 / 哈希基线，可在下次比较时记录探针打印的长度与本地校验和。
 
 ## 同类项目对比
 
@@ -331,23 +419,16 @@ systemctl --user list-timers agent-session-manager.timer
 ### 与同类项目的差异
 
 - **GitHub Copilot CLI 是一等适配器。** 上面的项目目前都不解析 `~/.copilot/session-state/*/events.jsonl`。
-- **产物贴近 Copilot CLI `/share file` 与 `/share html` 约定，但不声称完全等价。** 熟悉的 Primer 样式、筛选概念、emoji 前缀的 Markdown 标题、耗时戳、`<details>` 折叠、diff 围栏都延续下来。HTML 渲染器用 React 而非官方 vanilla bundle，额外加了子代理/技能/计划与总结条目，用 Shiki 与 24 小时制，且无法重建只存在于 live 内存的条目。见 [`docs/copilot-timeline.md`](docs/copilot-timeline.md)。
+- **产物贴近 Copilot CLI `/share file` 与 `/share html` 约定，但不声称完全等价。** 熟悉的 Primer 样式、筛选概念、emoji 前缀的 Markdown 标题、耗时戳、`<details>` 折叠、diff 围栏都延续下来。HTML 渲染器用 React 而非官方 vanilla bundle，额外加了子代理/技能/计划与总结条目，用 Shiki 与 24 小时制，且无法重建只存在于 live 内存的条目。见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md)。
 - **单文件 HTML 是默认交付物。** ~1 MB，无服务器、无构建，双击即开。（多数同类发 Tauri app、Express/FastAPI web app 或 TUI；唯二的静态 HTML 同类是 Simon 的 `claude-code-transcripts`（仅 Claude）和 `daaain/claude-code-log`（仅 Claude）。）
 - **单一自包含产物，安装摩擦低。** 一个无 scope 的 npm 包 `asmgr`（命令同名）：`npm i -g asmgr`、免 Node 的原生二进制、或 `npm i -g github:` 免 registry 一行装。解析器与渲染器是包内模块，不额外发布独立包。
 - **不耦合 live agent SDK。** 只读，正常运行不调用任何 Anthropic / OpenAI / GitHub API；没有 `claude-code-viewer` 那样要应对的 ToS 面。
 
 ### 从同类项目借鉴
 
-这些尚未实现，都作为 GitHub issue 跟踪（每条写明 `Inspired by …`）：
+这些灵感项都作为 GitHub issue 跟踪（每条写明 `Inspired by …`），见 [issues](https://github.com/TMYTiMidlY/agent-session-manager/issues)：项目层级索引页（`claude-code-log`）、Token / 成本分析视图（`token-dashboard`）、实时 tail 模式（`claude-code-trace` / `tail-claude`）、按项目分组侧栏（`agent-session-viewer` / `codex-history-viewer`）、VS Code 扩展封装（`codex-history-viewer`）、Pages 静态导出 tarball（`claude-code-transcripts`）。
 
-- **项目层级索引页**，链接到每个会话 HTML（à la `claude-code-log`）。
-- **Token / 成本分析视图**（à la `token-dashboard`）。
-- **实时 tail 模式**，跟随打开中的会话（à la `claude-code-trace` / `tail-claude`）。
-- **按项目分组的侧栏**，用于 `asmgr list`（à la `agent-session-viewer`、`codex-history-viewer`）。
-- **VS Code 扩展封装**，作为独立包（à la `codex-history-viewer`）。
-- **用于 Pages 托管的静态导出 tarball**（à la `claude-code-transcripts`）。
-
-## 公开前的安全检查
+## <a id="safety"></a>公开前的安全检查
 
 把本仓库推到任何公开位置前，只检查被跟踪的文件：
 
@@ -360,13 +441,9 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 
 ## <a id="roadmap"></a>路线图
 
-- ~~**单文件分发与 npm 发布。**~~ 已实现：合并为单一无 scope 包 `asmgr`；`bun build --compile` 打出四平台原生二进制，[手动触发的 release workflow](.github/workflows/release.yml) 用 semantic-release 自动定版 + 写 `CHANGELOG.md` + 发 npm + 建附带二进制的 GitHub Release；另有 `npm i -g github:...` 免 registry 一行安装（`prepare` 钩子用 esbuild 打包）。详见[安装](#install)。
-- **本地 Web 界面（`asmgr web`）。** 在本机启动、仅供自己查看的会话浏览界面，随 `asmgr` 同一个包分发，默认只监听 `127.0.0.1`。（未来功能。）
-- **对 restic 恢复出来的备份快照做持久化索引/缓存搜索**（最初在前身 `session-trace` 仓库里记为 issue #1——见 `docs/issues/search-restic-backups.md`）。对恢复出来的缓存目录做临时搜索已能用 `asmgr search --file <dir>` 做到，`asmgr backup cache` 恢复助手也已实现；剩下的是一个持久化的 SQLite/FTS 索引。
-- **提升每种 agent 格式的适配器保真度。**
-- **项目层级索引页**（灵感来自 `daaain/claude-code-log`）。
-- **Token / 成本分析视图**（灵感来自 `nateherkai/token-dashboard`）。
-- **面向活跃会话的实时 tail 模式**（灵感来自 `delexw/claude-code-trace`、`kylesnowschwartz/tail-claude`）。
-- **VS Code 扩展封装**（灵感来自 `HizTam/codex-history-viewer`）。
-- **用于 GitHub Pages 的静态导出 tarball**（灵感来自 `simonw/claude-code-transcripts`）。
-- **跨多会话的仪表盘视图。**
+待办与灵感项都在 [GitHub issues](https://github.com/TMYTiMidlY/agent-session-manager/issues) 跟踪。两条值得单独点名的方向：
+
+- **忠实恢复 / 迁移**：把会话恢复到"另一台机器能 `--resume`"的原生状态（来源 = 备份快照 ∪ 另一台机器）——理念见 [ADR 0001](docs/adr/0001-scope-archive-and-restore.md) 与 [ADR 0004](docs/adr/0004-restore-fidelity-and-safety.md)。
+- **本地 Web 界面 `asmgr web`**：本机启动、仅供自己查看、默认只绑 `127.0.0.1` 的会话浏览界面，随同一个包分发——见 [ADR 0002](docs/adr/0002-single-package-asmgr-distribution.md)。
+
+单文件分发与 npm 发布**已实现**（单一无 scope 包 `asmgr`、四平台原生二进制、semantic-release、`npm i -g github:` 免 registry 安装）——详见[安装](#install)。其余（持久化索引搜索恢复出来的备份、提升适配器保真度、项目层级索引页、Token / 成本视图、实时 tail、VS Code 扩展、Pages 导出 tarball、跨多会话仪表盘）见 issues。
