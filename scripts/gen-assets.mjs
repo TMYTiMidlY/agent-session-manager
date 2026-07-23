@@ -34,7 +34,7 @@ const outFile = join(root, "src", "html", "assets.generated.ts");
  * don't exist in the installed lucide-static are skipped; the renderer's
  * `icon()` fallback renders an empty <svg> for them, matching the previous
  * runtime behaviour. */
-const EXTRA_ICON_NAMES = ["check", "x", "ban", "alert-triangle", "hourglass"];
+const EXTRA_ICON_NAMES = ["check", "x", "ban", "triangle-alert", "hourglass"];
 
 function collectIconNames() {
   const source = readFileSync(srcIndex, "utf8");

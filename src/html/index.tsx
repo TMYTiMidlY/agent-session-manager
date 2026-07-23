@@ -173,7 +173,7 @@ const PILL_DEFS: Record<FilterKey, PillDef> = {
   skill:         { key: "skill",         label: "技能",     icon: "sparkles",      accent: "amber" },
   plan:          { key: "plan",          label: "计划",     icon: "list-checks",   accent: "green" },
   info:          { key: "info",          label: "信息",     icon: "info",          accent: "sky" },
-  warning:       { key: "warning",       label: "警告",     icon: "alert-triangle",accent: "amber" },
+  warning:       { key: "warning",       label: "警告",     icon: "triangle-alert",accent: "amber" },
   error:         { key: "error",         label: "错误",     icon: "x",             accent: "rose" },
   system:        { key: "system",        label: "系统",     icon: "info",          accent: "gray" },
 };
@@ -462,7 +462,7 @@ function EventCard({ entry, sessionStart }: { entry: TimelineEntry; sessionStart
   if (kind === "skill") return <SkillCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "plan") return <PlanCard entry={entry} sessionStart={sessionStart} />;
   if (kind === "notification") return <NotificationCard entry={entry} sessionStart={sessionStart} />;
-  if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="alert-triangle" sessionStart={sessionStart} />;
+  if (kind === "warning") return <SimpleEntry entry={entry} isMarkdown={false} icon="triangle-alert" sessionStart={sessionStart} />;
   if (kind === "error") return <SimpleEntry entry={entry} isMarkdown={false} icon="x" sessionStart={sessionStart} />;
   return <SimpleEntry entry={entry} isMarkdown={false} icon="info" sessionStart={sessionStart} />;
 }
@@ -480,7 +480,7 @@ function CompactionCard({ entry, sessionStart }: { entry: TimelineEntry; session
       <summary>
         <span className="chevron">›</span>
         <span className="badge">#{entry.index + 1}</span>
-        <Icon name={success ? "circle-dashed" : "alert-triangle"} />
+        <Icon name={success ? "circle-dashed" : "triangle-alert"} />
         <span className="role">{label}</span>
         <span className="snippet">{stats || firstLine(entry.text)}</span>
         <TimestampLink entry={entry} sessionStart={sessionStart} />
@@ -841,7 +841,7 @@ function resultIcon(kind: ToolResultKind): string {
   if (kind === "success") return "check";
   if (kind === "failure") return "x";
   if (kind === "rejected") return "ban";
-  if (kind === "denied") return "alert-triangle";
+  if (kind === "denied") return "triangle-alert";
   return "hourglass";
 }
 
