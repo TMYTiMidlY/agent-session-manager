@@ -11,6 +11,8 @@ name: release
 # rights to the `asmgr` package; GITHUB_TOKEN is provided automatically.
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
