@@ -139,7 +139,7 @@ chronicle show <session-id> --agent copilot --format dialogue
 chronicle show <session-id> --agent codex --format json
 ```
 
-`--format dialogue` 只保留**用户消息 / 用户决策（`ask_user` 的回答）/ 压缩摘要 / 助手回复**，跳过工具调用与 reasoning。工具噪音被剔掉后，每条用户 prompt 直接紧跟回答它的助手回复，prompt↔回复的对应关系一目了然——适合 dredge-up 这类「通读整段对话、别烧上下文」的场景。`--format text` 则含完整工具参数+结果、子代理/技能/计划/压缩统计。
+`--format dialogue` 只保留**用户消息 / 用户决策（`ask_user` 的回答）/ 压缩摘要 / 助手回复**，跳过工具调用与 reasoning。工具噪音被剔掉后，每条用户 prompt 直接紧跟回答它的助手回复，prompt↔回复的对应关系一目了然——适合会话复盘、交接和收尾盘点等需要通读对话主干的场景。`--format text` 则含完整工具参数+结果、子代理/技能/计划/压缩统计。
 
 ### `chronicle html`
 
@@ -151,7 +151,7 @@ chronicle show <session-id> --agent codex --format json
 - **耗时 pill**，由 `startedAt` → 最后一条条目算出，显示在 header。
 - **agent 总结卡片**，用 `--summary <file.html>` 钉在时间线顶部（原样渲染受信任 HTML；`data-index="summary"`，真实第 1 条仍是第 1 条）。
 - **合并的工具卡片**，五种结果态（success / failure / rejected / denied / pending），配对应的边框色与状态图标。
-- **`ask_user` 的回答被抽成一等「用户决策」条目**（`user/decision`）：既保留原始工具卡片，又让用户的选择/回答在时间线里单独、显眼地出现——dredge-up 通读时不会把决策埋没在成百上千次工具调用里。
+- **`ask_user` 的回答被抽成一等「用户决策」条目**（`user/decision`）：既保留原始工具卡片，又让用户的选择/回答在时间线里单独、显眼地出现——复盘或交接时不会把决策埋没在成百上千次工具调用里。
 - **子代理 / 技能 / 计划条目**，从 `events.jsonl` 解析、各自成卡片 + 筛选 pill。子代理卡片在可得时显示记录到的身份、模型、描述、失败详情。这些超出 Copilot 自身 `/share html` 的筛选集。
 - **数据源回退警告 pill**，当解析器不得不读 `events.jsonl` 之外的东西时显示在 header；回退到 `db.turns` 时进一步说明「交互式用户决策与工具条目在此模式下不可恢复」。
 - **默认展开策略在其余方面沿用 Copilot bundle**：`user / assistant / error / task_complete` 展开，其它折叠。
@@ -345,7 +345,6 @@ git grep -nE 'PRIVATE|SECRET|TOKEN|PASSWORD|AKIA|/(h[o]me|Users)/|10\\.|192\\.16
 
 - **单文件分发。** 用 `bun build --compile` 打包 CLI，把原生二进制附加到 GitHub Releases；workspace 打包配好后再加 `npm i -g github:...` 一行安装。
 - **对 restic 恢复出来的备份快照做持久化索引/缓存搜索**（最初在前身 `session-trace` 仓库里记为 issue #1——见 `docs/issues/search-restic-backups.md`）。对恢复出来的缓存目录做临时搜索已能用 `chronicle search --file <dir>` 做到，`chronicle backup cache` 恢复助手也已实现；剩下的是一个持久化的 SQLite/FTS 索引。
-- **把旧的 `dredge-up` skill 改成调用 `chronicle` 的薄封装。** `chronicle` 现已覆盖该 skill 需要的 Copilot 条目类型（子代理 / 技能 / 计划，外加适配器过去会丢弃的 compaction / task_complete / warning / error），且两种产物（`md` + 单文件 `html`）都有，因此这个封装已解除阻塞。
 - **提升每种 agent 格式的适配器保真度。**
 - **项目层级索引页**（灵感来自 `daaain/claude-code-log`）。
 - **Token / 成本分析视图**（灵感来自 `nateherkai/token-dashboard`）。

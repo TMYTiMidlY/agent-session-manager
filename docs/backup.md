@@ -36,7 +36,7 @@ that, the CLI keeps filesystem snapshots under
 
 Setting `BACKUP_EXCLUDE_REWIND=1` drops these from the backup. It saves more space than
 any other single exclusion and does **not** affect `/share html`, `--resume`, or
-`chronicle` / dredge-up. Live `/share html` renders the current in-memory timeline;
+`chronicle`. Live `/share html` renders the current in-memory timeline;
 resume and offline exporters reconstruct from `events.jsonl`, which is always backed
 up. The only thing you lose is the ability to `/rewind` a *restored* session. See
 the [Copilot timeline model](copilot-timeline.md) for the distinction.
