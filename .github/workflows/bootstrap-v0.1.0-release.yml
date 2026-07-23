@@ -1,0 +1,77 @@
+name: bootstrap v0.1.0 release
+
+# One-shot workflow for the manually bootstrapped npm v0.1.0 + seed tag.
+# Remove this file after the release is created successfully; future releases
+# are owned exclusively by release.yml + semantic-release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - CHANGELOG.md
+      - .github/workflows/bootstrap-v0.1.0-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+      - name: Assert runtime sources still match v0.1.0
+        run: |
+          git diff --exit-code v0.1.0..HEAD -- \
+            src scripts backup.sh tools/backup-cache.sh exclude.txt
+          test "$(node -p "require('./package.json').version")" = "0.1.0"
+
+      - name: Build release assets
+        run: |
+          pnpm run binaries
+          cd dist
+          sha256sum \
+            asmgr-linux-x64 \
+            asmgr-darwin-x64 \
+            asmgr-darwin-arm64 \
+            asmgr-windows-x64.exe \
+            asmgr.mjs \
+            > SHA256SUMS.txt
+
+      - name: Extract v0.1.0 changelog
+        run: |
+          awk '
+          /^## 0\.1\.0 / { found=1 }
+          found && /^## / && $0 !~ /^## 0\.1\.0 / { exit }
+          found { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          test -s /tmp/release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: asmgr v0.1.0
+          body_path: /tmp/release-notes.md
+          generate_release_notes: true
+          files: |
+            dist/asmgr-linux-x64
+            dist/asmgr-darwin-x64
+            dist/asmgr-darwin-arm64
+            dist/asmgr-windows-x64.exe
+            dist/asmgr.mjs
+            dist/SHA256SUMS.txt
