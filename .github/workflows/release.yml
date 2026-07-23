@@ -28,7 +28,7 @@ jobs:
       pull-requests: write # 在已发布的 PR 上评论
       id-token: write # OIDC：npm trusted publishing / provenance
     runs-on: ubuntu-latest
-    environment: release
+    environment: npmjs
     steps:
       - uses: actions/checkout@v4
         with:
