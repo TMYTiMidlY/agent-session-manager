@@ -2,6 +2,7 @@
   "name": "asmgr",
   "version": "0.1.0",
   "description": "Search and render local coding-agent (GitHub Copilot CLI, Claude Code, OpenAI Codex CLI) session histories as self-contained HTML or Markdown.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "asmgr": "dist/asmgr.mjs"
