@@ -23,7 +23,7 @@ The two export paths are therefore:
 
 - **Official live export:** runtime event → Copilot's event-to-entry mapper →
   in-memory timeline → `/share html`.
-- **Offline `chronicle` export:** persisted event in `events.jsonl` → `chronicle`'s
+- **Offline `asmgr` export:** persisted event in `events.jsonl` → `asmgr`'s
   event-to-entry mapper → normalized timeline entry → HTML or Markdown.
 
 The core maintenance hazard follows directly:
@@ -32,7 +32,7 @@ The core maintenance hazard follows directly:
 > silently dropped.**
 
 This caused earlier compaction and `task_complete` under-rendering bugs. The
-[Copilot parser diagnostics](../packages/core/src/adapters/copilot.ts) count
+[Copilot parser diagnostics](../src/core/adapters/copilot.ts) count
 handled, intentionally ignored, and unknown raw events so schema drift is
 visible instead of disappearing unnoticed.
 
@@ -43,11 +43,11 @@ The official `/share html` bundle has a fixed set of 12 filter classes:
 `user`, `copilot`, `tool`, `reasoning`, `info`, `warning`, `error`, `group`,
 `notification`, `handoff`, `compaction`, and `task_complete`.
 
-`chronicle` additionally exposes `subagent`, `skill`, and `plan` entries, and can
+`asmgr` additionally exposes `subagent`, `skill`, and `plan` entries, and can
 pin a summary card above the reconstructed timeline. These are deliberate
 extensions beyond the official filter set.
 
-Unlike the official bundle, `chronicle` expands single-line info entries such
+Unlike the official bundle, `asmgr` expands single-line info entries such
 as model changes and user cancellations by default; multi-line info entries
 remain folded.
 
@@ -56,7 +56,7 @@ remain folded.
 Persisted `assistant.message` events can contain `reasoningText`, but Copilot's
 live event-to-entry mapping does not add that field to the official timeline.
 Consequently, observed official exports report zero reasoning entries for this
-data. `chronicle` deliberately splits `reasoningText` into a separate reasoning
+data. `asmgr` deliberately splits `reasoningText` into a separate reasoning
 entry during offline reconstruction.
 
 ## Data that offline export cannot recover

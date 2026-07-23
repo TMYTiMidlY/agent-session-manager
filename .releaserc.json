@@ -1,0 +1,40 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md"
+      }
+    ],
+    "@semantic-release/npm",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "pnpm run binaries && cd dist && sha256sum asmgr-linux-x64 asmgr-darwin-x64 asmgr-darwin-arm64 asmgr-windows-x64.exe asmgr.mjs > SHA256SUMS.txt"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["package.json", "CHANGELOG.md"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "dist/asmgr-linux-x64", "label": "asmgr-linux-x64 (Linux x64)" },
+          { "path": "dist/asmgr-darwin-x64", "label": "asmgr-darwin-x64 (macOS Intel)" },
+          { "path": "dist/asmgr-darwin-arm64", "label": "asmgr-darwin-arm64 (macOS Apple Silicon)" },
+          { "path": "dist/asmgr-windows-x64.exe", "label": "asmgr-windows-x64.exe (Windows x64)" },
+          { "path": "dist/asmgr.mjs", "label": "asmgr.mjs (Node bundle)" },
+          { "path": "dist/SHA256SUMS.txt", "label": "SHA256SUMS.txt" }
+        ]
+      }
+    ]
+  ]
+}

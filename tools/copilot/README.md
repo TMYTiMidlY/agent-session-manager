@@ -1,7 +1,7 @@
 # Copilot `/share` asset drift oracle
 
 `extract-share-assets.cjs` is a reverse-engineering aid, not part of
-`chronicle`'s render path.
+`asmgr`'s render path.
 
 ## What it extracts
 
@@ -39,7 +39,7 @@ into production.
 
 ## Runtime and baseline status
 
-The maintained HTML renderer is the React implementation in `packages/html`.
+The maintained HTML renderer is the React implementation in `src/html`.
 It does not import or ship `share-export.css` or `share-export.js`; generated
 assets are not a runtime or build dependency.
 

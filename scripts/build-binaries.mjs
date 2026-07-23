@@ -1,10 +1,10 @@
 /**
- * Compile standalone `chronicle` binaries with `bun build --compile`.
+ * Compile standalone `asmgr` binaries with `bun build --compile`.
  *
  * These are the zero-dependency artifacts attached to GitHub Releases: a single
  * executable per platform that embeds the Bun runtime, so end users need
  * neither Node nor pnpm. The input is the same self-contained ESM bundle used
- * by the `npm i -g github:` path (dist/chronicle.mjs), which is (re)built first.
+ * by the `npm i -g github:` path (dist/asmgr.mjs), which is (re)built first.
  *
  * Usage:
  *   node scripts/build-binaries.mjs                # all default targets
@@ -20,15 +20,15 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const bundle = resolve(root, "dist/chronicle.mjs");
+const bundle = resolve(root, "dist/asmgr.mjs");
 const outDir = resolve(root, "dist");
 
 /** Bun cross-compilation targets → output file names. */
 const TARGETS = [
-  { label: "linux-x64", target: "bun-linux-x64", out: "chronicle-linux-x64" },
-  { label: "darwin-x64", target: "bun-darwin-x64", out: "chronicle-darwin-x64" },
-  { label: "darwin-arm64", target: "bun-darwin-arm64", out: "chronicle-darwin-arm64" },
-  { label: "windows-x64", target: "bun-windows-x64", out: "chronicle-windows-x64.exe" },
+  { label: "linux-x64", target: "bun-linux-x64", out: "asmgr-linux-x64" },
+  { label: "darwin-x64", target: "bun-darwin-x64", out: "asmgr-darwin-x64" },
+  { label: "darwin-arm64", target: "bun-darwin-arm64", out: "asmgr-darwin-arm64" },
+  { label: "windows-x64", target: "bun-windows-x64", out: "asmgr-windows-x64.exe" },
 ];
 
 function haveBun() {

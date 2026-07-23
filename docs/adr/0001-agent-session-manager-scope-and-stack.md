@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. The CLI name and package structure recorded here are **superseded by [ADR 0002](0002-single-package-and-asmgr-rename.md)**: the binary is now `asmgr`, and the pnpm workspace (`packages/*`) was collapsed into a single unscoped npm package with internal `src/*` modules. The scope, read-only stance, backup-as-one-source framing, and React-only HTML decisions below still hold.
 
 ## Context
 

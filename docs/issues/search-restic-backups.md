@@ -4,7 +4,7 @@ GitHub issue: https://github.com/TMYTiMidlY/agent-session-manager/issues (re-fil
 
 ## Summary
 
-`chronicle search/show/html` currently reads live local agent history directories. Add support for searching historical sessions restored from restic snapshots.
+`asmgr search/show/html` currently reads live local agent history directories. Add support for searching historical sessions restored from restic snapshots.
 
 ## Progress (2026-07-22)
 
@@ -14,24 +14,24 @@ for them, auto-detecting each file's agent. So the **ad-hoc** flow already works
 
 ```bash
 restic restore latest --target /tmp/cache
-chronicle search "keyword" --file /tmp/cache
-chronicle html <session-id> --file /tmp/cache -o report.html
+asmgr search "keyword" --file /tmp/cache
+asmgr html <session-id> --file /tmp/cache -o report.html
 ```
 
 Still open (the durable half of this issue):
 
-- `chronicle backup cache latest` convenience wrapper that restores the relevant
+- `asmgr backup cache latest` convenience wrapper that restores the relevant
   agent paths into a cache directory.
-- `chronicle index --source cache` building a persistent SQLite/FTS index.
+- `asmgr index --source cache` building a persistent SQLite/FTS index.
 - `--source cache` as a named source alias (today you pass the concrete path via
   `--file`).
 
 ## Desired behavior
 
-- `chronicle backup cache latest` restores the relevant agent history paths from the latest restic snapshot into a local cache directory.
-- `chronicle index --source cache` builds or refreshes a SQLite/FTS index from that cache.
-- `chronicle search <query> --source cache` searches cached backup history.
-- `chronicle show <session-id> --source cache` and `chronicle html <session-id> --source cache` read original files from the cache, not from the live agent directories.
+- `asmgr backup cache latest` restores the relevant agent history paths from the latest restic snapshot into a local cache directory.
+- `asmgr index --source cache` builds or refreshes a SQLite/FTS index from that cache.
+- `asmgr search <query> --source cache` searches cached backup history.
+- `asmgr show <session-id> --source cache` and `asmgr html <session-id> --source cache` read original files from the cache, not from the live agent directories.
 
 ## Constraints
 

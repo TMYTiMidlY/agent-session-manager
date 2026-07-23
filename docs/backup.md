@@ -1,6 +1,6 @@
 # Backing up agent session history
 
-`chronicle backup` (a thin wrapper over `backup.sh`) takes an encrypted, deduplicated,
+`asmgr backup` (a thin wrapper over `backup.sh`) takes an encrypted, deduplicated,
 incremental backup of your coding-agent history with [restic](https://restic.net).
 It is the archive source behind the planned "search restored snapshots" feature
 (see `docs/issues/search-restic-backups.md`).
@@ -17,7 +17,7 @@ up whichever of those agent homes exist. For GitHub Copilot CLI (`~/.copilot`):
 
 | Path | Typical size | What it is | Change pattern | Backed up? |
 |---|---|---|---|---|
-| `session-state/<id>/events.jsonl` | large (GBs total) | Persisted per-session event stream — replayed on resume and mapped into offline `chronicle` entries; live `/share html` renders the in-memory timeline instead | append-heavy; may be truncated or rewritten at compaction | ✅ core |
+| `session-state/<id>/events.jsonl` | large (GBs total) | Persisted per-session event stream — replayed on resume and mapped into offline `asmgr` entries; live `/share html` renders the in-memory timeline instead | append-heavy; may be truncated or rewritten at compaction | ✅ core |
 | `session-state/<id>/{checkpoints,files,research}/` | small–medium | Per-session artifacts (checkpoints, attached files, research notes) | grows | ✅ |
 | `session-store.db` | tens of MB | SQLite index over all sessions (summaries, turns, file/ref index, FTS) | rewritten in place | ✅ — WAL is checkpointed first so the copy is self-consistent |
 | `session-store.db-wal` / `-shm` | small | SQLite write-ahead log / shared memory (hot files) | churns constantly | ❌ excluded (`exclude.txt`) |
@@ -36,7 +36,7 @@ that, the CLI keeps filesystem snapshots under
 
 Setting `BACKUP_EXCLUDE_REWIND=1` drops these from the backup. It saves more space than
 any other single exclusion and does **not** affect `/share html`, `--resume`, or
-`chronicle`. Live `/share html` renders the current in-memory timeline;
+`asmgr`. Live `/share html` renders the current in-memory timeline;
 resume and offline exporters reconstruct from `events.jsonl`, which is always backed
 up. The only thing you lose is the ability to `/rewind` a *restored* session. See
 the [Copilot timeline model](copilot-timeline.md) for the distinction.
@@ -82,8 +82,8 @@ restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 ```bash
 cp secrets.env.example secrets.env && chmod 600 secrets.env   # fill in your backend
 set -a; source secrets.env; set +a && restic init            # once, for a new repo
-chronicle backup --dry-run                                       # preview
-chronicle backup                                                 # for real
+asmgr backup --dry-run                                       # preview
+asmgr backup                                                 # for real
 ```
 
 ## Automatic runs (systemd user timer)

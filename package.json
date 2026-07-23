@@ -1,36 +1,42 @@
 {
-  "name": "agent-session-manager",
+  "name": "asmgr",
   "version": "0.1.0",
-  "private": true,
+  "description": "Search and render local coding-agent (GitHub Copilot CLI, Claude Code, OpenAI Codex CLI) session histories as self-contained HTML or Markdown.",
   "type": "module",
   "bin": {
-    "chronicle": "dist/chronicle.mjs"
+    "asmgr": "dist/asmgr.mjs"
   },
   "files": [
-    "dist"
+    "dist/asmgr.mjs"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TMYTiMidlY/agent-session-manager.git"
+  },
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "node scripts/bundle.mjs",
     "bundle": "node scripts/bundle.mjs",
     "binaries": "node scripts/build-binaries.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
     "prepare": "node scripts/bundle.mjs",
-    "test": "pnpm -r --if-present test",
-    "chronicle": "pnpm --filter @agent-session-manager/cli dev"
+    "test": "vitest run",
+    "release": "semantic-release"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "typescript": "^5.9.0",
-    "tsx": "^4.20.0",
-    "vitest": "^4.0.0",
-    "esbuild": "^0.28.1",
-    "commander": "^14.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/exec": "^7.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@shikijs/engine-javascript": "^4.3.0",
     "@shikijs/langs": "^4.3.0",
     "@shikijs/themes": "^4.3.0",
     "@shikijs/types": "^4.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "commander": "^14.0.0",
+    "esbuild": "^0.28.1",
     "katex": "^0.17.0",
     "lucide-static": "^0.483.0",
     "react": "^19.2.0",
@@ -39,6 +45,10 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "shiki": "^4.3.0"
+    "semantic-release": "^24.2.9",
+    "shiki": "^4.3.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
   }
 }
