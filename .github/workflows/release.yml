@@ -17,6 +17,11 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+concurrency:
+  group: release
+  # 发布中途不能被新 push 取消；后来的 run 排队并基于最新 tag 重新计算。
+  cancel-in-progress: false
+
 permissions:
   contents: read # 顶层最小权限；发布 job 在下方按需提权
 
