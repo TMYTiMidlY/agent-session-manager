@@ -18,13 +18,15 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
-  id-token: write
+  contents: read # 顶层最小权限；发布 job 在下方按需提权
 
 jobs:
   release:
+    permissions:
+      contents: write # 建 GitHub Release、回推 CHANGELOG/package.json + tag
+      issues: write # 在已发布的 issue 上评论
+      pull-requests: write # 在已发布的 PR 上评论
+      id-token: write # OIDC：npm trusted publishing / provenance
     runs-on: ubuntu-latest
     environment: release
     steps:
