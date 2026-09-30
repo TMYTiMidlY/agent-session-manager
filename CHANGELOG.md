@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.3.0...v0.4.0) (2026-09-30)
+
+
+### Features
+
+* read DSH v4 session archives ([6af9d73](https://github.com/TMYTiMidlY/agent-session-manager/commit/6af9d73e983ea7da95ba366030dba9eefde04723))
+
 # [0.3.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.2.0...v0.3.0) (2026-09-10)
 
 
