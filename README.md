@@ -179,7 +179,9 @@ asmgr search "database migration" --session <session-id>   # 只在一个会话�
 
 每条命中是一行 tab 分隔、以 `project` 列（cwd 最近的含 `.git` 祖先目录；找不到 `.git` 祖先时为 cwd 原值，无 cwd 时为 `(unscoped)`）开头：`project`、`agent`、`session-id`、`#条目`、`role/kind`、`摘录`。
 
-`--session <id>` 把搜索限定到一个会话（先精确匹配 id，否则按前缀匹配）——用来在**当前这个会话**里按关键词找模型回复，不必先用 `--file` 指路径。
+`--session <id>` 把搜索限定到一个会话（先精确匹配 id，否则按前缀匹配；DSH 的 id 是 `session-<uuid>`，直接给裸 uuid 也可以）——用来在**当前这个会话**里按关键词找模型回复，不必先用 `--file` 指路径。
+
+跨会话搜索对每个会话独立解析：遇到官方迁移器拒绝或损坏的存档时，在 stderr 逐条报出路径与原因后跳过，不中断其余会话的检索；stdout 的命中行不受影响。
 
 ### `asmgr import`
 

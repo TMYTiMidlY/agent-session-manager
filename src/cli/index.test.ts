@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -59,6 +60,49 @@ describe("asmgr cli", () => {
         "does-not-exist-xyz",
       ]),
     ).rejects.toThrow(/session not found/);
+  });
+
+  /** A readable and an officially-refused DSH session under one --dsh-root; the broken id sorts first. */
+  async function dshRootWithOneBrokenSession(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "asmgr-search-resilience-"));
+    const broken = join(root, "a-broken", "session.jsonl");
+    await mkdir(dirname(broken), { recursive: true });
+    await writeFile(broken, [
+      JSON.stringify({ type: "session", version: 0, id: "00a-broken", createdAt: 1, cwd: "/synthetic", delegationDepth: 0 }),
+      JSON.stringify({ type: "subagent/descriptor", seq: 0, time: 2, data: { version: 2, mode: "continuable", provider: "mock", label: "synthetic old child" } }),
+    ].join("\n") + "\n");
+    const good = join(root, "z-good", "session.v3.jsonl");
+    await mkdir(dirname(good), { recursive: true });
+    await writeFile(good, [
+      JSON.stringify({ type: "session", version: 3, id: "session-zgood", createdAt: 1, cwd: "/synthetic", isSeeded: false, delegationDepth: 0 }),
+      JSON.stringify({ type: "user/message", seq: 0, time: 2, surfaceOp: "append", data: { id: "u1", role: "user", source: { kind: "user" }, content: [{ type: "text", text: "needleword question" }] } }),
+    ].join("\n") + "\n");
+    return root;
+  }
+
+  it("keeps searching remaining sessions when one archive is refused", async () => {
+    const root = await dshRootWithOneBrokenSession();
+    try {
+      const { stdout, stderr } = await execFileAsync(tsx, [cli, "search", "needleword", "--agent", "dsh", "--dsh-root", root]);
+      expect(stdout).toContain("session-zgood");
+      expect(stdout).toContain("needleword");
+      expect(stderr).toContain("跳过无法解析的会话");
+      expect(stderr).toContain("a-broken");
+      expect(stderr).toContain("已跳过 1 个");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("shows a DSH session by its bare uuid when the id carries the session- prefix", async () => {
+    const root = await dshRootWithOneBrokenSession();
+    try {
+      const { stdout } = await execFileAsync(tsx, [cli, "show", "zgood", "--agent", "dsh", "--dsh-root", root, "--format", "dialogue"]);
+      expect(stdout).toContain("session-zgood");
+      expect(stdout).toContain("needleword");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("shows fixture sessions as JSON", async () => {

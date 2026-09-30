@@ -102,3 +102,25 @@ describe("discoverPath", () => {
     expect(findSessionAmong(await discoverPath(cache), "copilot-fixture")?.agent).toBe("copilot");
   });
 });
+
+describe("findSessionAmong", () => {
+  const ref = (id: string) => ({ agent: "dsh" as const, id, path: `/synthetic/${id}`, startedAt: "", source: { kind: "events" as const, path: "", lossy: false } });
+
+  it("matches exact ids and id prefixes", () => {
+    const refs = [ref("codex-fixture"), ref("session-62d1adcb-c10c-4ae5-b08f-5de90e56102d")];
+    expect(findSessionAmong(refs, "codex-fixture")?.id).toBe("codex-fixture");
+    expect(findSessionAmong(refs, "codex-fix")?.id).toBe("codex-fixture");
+  });
+
+  it("matches the uuid part of a session-prefixed DSH id", () => {
+    const refs = [ref("session-62d1adcb-c10c-4ae5-b08f-5de90e56102d")];
+    expect(findSessionAmong(refs, "62d1adcb")?.id).toBe("session-62d1adcb-c10c-4ae5-b08f-5de90e56102d");
+    expect(findSessionAmong(refs, "62d1adcb-c10c-4ae5-b08f-5de90e56102d")?.id).toBe("session-62d1adcb-c10c-4ae5-b08f-5de90e56102d");
+  });
+
+  it("still finds nothing for unrelated queries", () => {
+    const refs = [ref("session-62d1adcb-c10c-4ae5-b08f-5de90e56102d")];
+    expect(findSessionAmong(refs, "xyz")).toBeUndefined();
+    expect(findSessionAmong(refs, "62d1adcb-c10c-4ae5-b08f-5de90e56102d-extra")).toBeUndefined();
+  });
+});

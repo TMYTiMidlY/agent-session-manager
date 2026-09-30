@@ -57,7 +57,12 @@ export async function findSession(id: string, agents: AgentKind[] = AGENTS, root
 }
 
 export function findSessionAmong(refs: SessionRef[], id: string): SessionRef | undefined {
-  return refs.find((session) => session.id === id) ?? refs.find((session) => session.id.startsWith(id));
+  // DSH ids are "session-<uuid>"; a bare uuid reference still selects them.
+  for (const needle of id.startsWith("session-") ? [id] : [id, `session-${id}`]) {
+    const found = refs.find((session) => session.id === needle) ?? refs.find((session) => session.id.startsWith(needle));
+    if (found) return found;
+  }
+  return undefined;
 }
 
 export async function searchSessions(query: string, agents: AgentKind[] = AGENTS, roots: AgentRoots = {}, limit = 20): Promise<SearchHit[]> {
@@ -67,8 +72,18 @@ export async function searchSessions(query: string, agents: AgentKind[] = AGENTS
 export async function searchRefs(refs: SessionRef[], query: string, limit = 20): Promise<SearchHit[]> {
   const hits: SearchHit[] = [];
   const needle = query.toLowerCase();
+  let skipped = 0;
   for (const ref of refs) {
-    const parsed = await parseSession(ref);
+    let parsed;
+    try {
+      parsed = await parseSession(ref);
+    } catch (error) {
+      // One unreadable archive must not blind the search across the rest of the store;
+      // keep the per-session refusal visible instead of custom remediation.
+      skipped++;
+      console.error(`跳过无法解析的会话 ${ref.path}：${error instanceof Error ? error.message : String(error)}`);
+      continue;
+    }
     for (const entry of parsed.entries) {
       const searchText = timelineEntrySearchText(entry);
       if (!searchText.toLowerCase().includes(needle)) continue;
@@ -91,6 +106,7 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
       if (hits.length >= limit) return hits;
     }
   }
+  if (skipped > 0) console.error(`已跳过 ${skipped} 个无法解析的会话（详见上方各条路径与原因）`);
   return hits;
 }
 
