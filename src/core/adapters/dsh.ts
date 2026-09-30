@@ -1,12 +1,21 @@
 import { basename, dirname, join } from "node:path";
 import { sessionFormatCatalog } from "@deepseek-ai/dsh-session-format-catalog";
-import { parseSessionFormatLogFilename, type SessionFormatArtifact, type SessionFormatRestore } from "@deepseek-ai/dsh-session-format";
+import { SessionFormatEventCollector, parseSessionFormatLogFilename, type SessionFormatArtifact, type SessionFormatHeader, type SessionFormatRestore } from "@deepseek-ai/dsh-session-format";
+import { releasedV2SessionFormatCodec } from "@deepseek-ai/dsh-session-format-v2-to-v3";
 import { KNOWN_SESSION_EVENT_TYPES, type SessionEvent } from "@deepseek-ai/dsh-session";
 import { deriveEventMessage, isAppendSurfaceEvent, isReplacementSurfaceEvent } from "@deepseek-ai/dsh-session/surface";
 import type { ParsedSession, SessionRef, TimelineEntry } from "../types.js";
 import { expandHome, iterateJsonl, readJsonl, walkFiles } from "../fs.js";
 
-/** Official codec and transcript semantics pinned to dsh-v0.1.5-rc.1 (format v3). */
+/**
+ * Official codecs pinned to dsh-v0.1.5-rc.1 (formats v0–v3) plus a native v4
+ * reader: v4 keeps the released v2 physical framing (dsh-session-format-v3-to-v4
+ * delegates row decoding to the v2 codec), so v4 rows decode through the
+ * official physical scanner while the first-class v4 vocabulary is projected
+ * in projectDsh. Newer formats stay a hard refusal instead of a partial read.
+ */
+const DSH_NATIVE_VERSION = 4;
+
 export function isDshHeader(value: unknown): boolean {
   const row = record(value);
   return row.type === "session" && typeof row.version === "number" && typeof row.id === "string";
@@ -33,17 +42,28 @@ export function selectDshGenerations(paths: string[]): string[] {
   return [...other, ...selected.values()].sort();
 }
 
+/** Decode one stored v4 physical header by reusing the official v2 framing decoder. */
+function readV4Header(header: unknown): SessionFormatHeader {
+  return { ...releasedV2SessionFormatCodec.decodeHeader({ ...record(header), version: 2 }), version: DSH_NATIVE_VERSION };
+}
+
 function headerRef(path: string, header: unknown): SessionRef {
-  const result = sessionFormatCatalog.readHeader(header);
-  if (result.status === "unsupported" || result.status === "malformed") throw new Error(result.reason);
+  const stored = record(header).version;
+  if (typeof stored === "number" && stored > DSH_NATIVE_VERSION) {
+    throw new Error(`DSH 会话使用更新的存档格式 v${stored}，本版本最高支持 v${DSH_NATIVE_VERSION}`);
+  }
+  const decoded = stored === DSH_NATIVE_VERSION
+    ? { storedVersion: DSH_NATIVE_VERSION, header: readV4Header(header) }
+    : sessionFormatCatalog.readHeader(header);
+  if ("reason" in decoded) throw new Error(decoded.reason);
   const namedVersion = dshLogVersion(path);
-  if (namedVersion !== undefined && namedVersion !== result.storedVersion) {
-    throw new Error(`DSH 文件名版本 v${namedVersion} 与文件头 v${result.storedVersion} 不符`);
+  if (namedVersion !== undefined && namedVersion !== decoded.storedVersion) {
+    throw new Error(`DSH 文件名版本 v${namedVersion} 与文件头 v${decoded.storedVersion} 不符`);
   }
   return {
-    agent: "dsh", id: result.header.id, path,
-    cwd: result.header.cwd,
-    startedAt: new Date(result.header.createdAt).toISOString(),
+    agent: "dsh", id: decoded.header.id, path,
+    cwd: decoded.header.cwd,
+    startedAt: new Date(decoded.header.createdAt).toISOString(),
     source: { kind: "events", path, lossy: false },
   };
 }
@@ -64,6 +84,21 @@ export async function discoverDsh(root?: string): Promise<SessionRef[]> {
   return refs;
 }
 
+/** Build one row-at-a-time restore: v4 decodes through the official v2 framing; v0–v3 restore through the catalog. */
+function createDshRestore(headerRow: unknown): SessionFormatRestore {
+  if (record(headerRow).version !== DSH_NATIVE_VERSION) {
+    return sessionFormatCatalog.createRestore(headerRow, { recovery: "strict", validation: "current" });
+  }
+  const decoder = releasedV2SessionFormatCodec.createDecoder({ ...record(headerRow), version: 2 }, "strict");
+  const header = { ...decoder.header, version: DSH_NATIVE_VERSION };
+  const collector = new SessionFormatEventCollector();
+  return {
+    header,
+    decodeRow: (row) => decoder.decodeRow(row, collector),
+    finish: () => ({ header, inheritedEventCount: decoder.finish(collector), events: collector.values }),
+  };
+}
+
 export async function parseDsh(ref: SessionRef): Promise<ParsedSession> {
   try {
     let restore: SessionFormatRestore | undefined;
@@ -73,7 +108,7 @@ export async function parseDsh(ref: SessionRef): Promise<ParsedSession> {
         source = headerRef(ref.path, row);
         // Reuse official packed-row decoding, adjacent migrations and validation.
         // No plugin runtime, source rewriting, or guessed legacy field mappings.
-        restore = sessionFormatCatalog.createRestore(row, { recovery: "strict", validation: "current" });
+        restore = createDshRestore(row);
       } else restore.decodeRow(row);
     }
     if (!restore) throw new Error("空会话文件");
@@ -184,7 +219,10 @@ function projectDsh(ref: SessionRef, artifact: SessionFormatArtifact): ParsedSes
       if (typeof data.compactionId === "string") summaries.set(data.compactionId, visibleText(data.summary));
     } else if (raw.type === "user/message" && isReplacementSurfaceEvent(event)) {
       const source = record(data.source);
-      if (source.kind === "plugin" && source.plugin === "compact" && typeof source.compactionId === "string") {
+      // v4 renamed the plugin wrapper to the producer-owned compact-checkpoint kind.
+      const compacted = source.kind === "compact-checkpoint"
+        || (source.kind === "plugin" && source.plugin === "compact");
+      if (compacted && typeof source.compactionId === "string") {
         push({ role: "event", kind: "compaction", text: summaries.get(source.compactionId) || "对话已压缩", timestamp, rawType: raw.type });
       }
     } else if (isAppendSurfaceEvent(event)) {
@@ -198,16 +236,16 @@ function projectDsh(ref: SessionRef, artifact: SessionFormatArtifact): ParsedSes
         const text = visibleText(message.content);
         if (text.trim()) push({ role: "assistant", kind: "message", text, timestamp, rawType: raw.type });
       } else if (event.type === "tool/result") {
-        const block = event.data.message.content[0];
+        const result = toolResult(event.data.message);
         const linked = (raw.sourceEventSeqs as number[] | undefined)?.map((seq) => callsBySeq.get(seq))
-          .filter((value) => value !== undefined && value.entry.tool?.callId === block.toolCallId) ?? [];
-        const pending = linked.length > 1 ? undefined : linked[0] ?? calls.get(callKey(block.toolCallId));
-        if (pending) finishTool(pending, block.content, block.isError === true, event.data.error?.code, timestamp);
-        else push({ role: "tool", kind: "tool", text: visibleText(block.content), timestamp, rawType: raw.type,
-          tool: { callId: block.toolCallId, result: { type: block.isError ? "failure" : "success", log: visibleText(block.content) } } });
+          .filter((value) => value !== undefined && value.entry.tool?.callId === result.callId) ?? [];
+        const pending = linked.length > 1 ? undefined : linked[0] ?? calls.get(callKey(result.callId));
+        if (pending) finishTool(pending, result.content, result.isError, event.data.error?.code, timestamp);
+        else push({ role: "tool", kind: "tool", text: visibleText(result.content), timestamp, rawType: raw.type,
+          tool: { callId: result.callId, result: { type: result.isError ? "failure" : "success", log: visibleText(result.content) } } });
       } else { diagnostics.ignored++; continue; }
     } else {
-      if (KNOWN_SESSION_EVENT_TYPES.has(raw.type)) diagnostics.ignored++;
+      if (isKnownDshEventType(raw.type)) diagnostics.ignored++;
       else { diagnostics.unknown++; unknown.add(raw.type); }
       continue;
     }
@@ -224,6 +262,23 @@ function projectDsh(ref: SessionRef, artifact: SessionFormatArtifact): ParsedSes
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+/** v4 tool results are first-class tool-role messages; released v3 wrapped one tool-result block in a user-role message. */
+function toolResult(message: unknown): { callId: string; content: unknown; isError: boolean } {
+  const row = record(message);
+  if (row.role === "tool") {
+    return { callId: String(row.toolCallId), content: row.content, isError: row.isError === true };
+  }
+  const wrapper = record(Array.isArray(row.content) ? row.content[0] : undefined);
+  return { callId: String(wrapper.toolCallId), content: wrapper.content, isError: wrapper.isError === true };
+}
+
+/** Released v4 event types admitted by the official reader but absent from the pinned v3 vocabulary. */
+const V4_EVENT_TYPES = new Set(["developer/message", "workspace/changes"]);
+
+function isKnownDshEventType(type: string): boolean {
+  return KNOWN_SESSION_EVENT_TYPES.has(type) || V4_EVENT_TYPES.has(type);
 }
 
 function parseJson(value: unknown): unknown {

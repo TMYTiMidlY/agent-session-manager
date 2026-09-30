@@ -41,14 +41,14 @@ async function writeLog(rows: readonly unknown[], path?: string): Promise<string
   return path;
 }
 
-async function parseRows(rows: readonly unknown[]) {
-  const path = await writeLog(rows);
+async function parseRows(rows: readonly unknown[], name = "session.v3.jsonl") {
+  const path = await writeLog(rows, join(await temporaryDirectory(), name));
   return parseDsh(await refFromDshFile(path));
 }
 
-/** Small canonical v3 logs; every test owns its rows, messages, and temporary files. */
-function fixture(id = "dsh-synthetic") {
-  const rows: Row[] = [header(3, id)];
+/** Small canonical logs; every test owns its rows, messages, and temporary files. */
+function fixture(id = "dsh-synthetic", version: 3 | 4 = 3) {
+  const rows: Row[] = [header(version, id)];
   let step = 1;
   const event = (type: string, data: unknown, metadata: Row = {}): number => {
     const seq = rows.length - 1;
@@ -67,11 +67,15 @@ function fixture(id = "dsh-synthetic") {
     assistant([{ type: "tool-call", id: callId, name, arguments: JSON.stringify(args) }]);
     return event("tool/call", { turn: 1, step, callId, name, arguments: JSON.stringify(args) });
   };
+  // v4 carries results as first-class tool-role messages; released v3 wrapped one block in a user-role message.
   const result = (callId: string, content: Row[], options: { error?: string; meta?: unknown } = {}) => event("tool/result", {
     turn: 1, step,
-    message: { id: `result-${rows.length}`, role: "user", source: { kind: "tool", callId }, content: [{
-      type: "tool-result", toolCallId: callId, content, isError: options.error !== undefined,
-    }] },
+    message: version === 4
+      ? { id: `result-${rows.length}`, role: "tool", source: { kind: "tool", callId }, toolCallId: callId, content,
+        isError: options.error !== undefined }
+      : { id: `result-${rows.length}`, role: "user", source: { kind: "tool", callId }, content: [{
+        type: "tool-result", toolCallId: callId, content, isError: options.error !== undefined,
+      }] },
     ...(options.error ? { error: { name: "UserQuestionError", code: options.error } } : {}),
     ...(options.meta === undefined ? {} : { meta: options.meta }),
   }, { surfaceOp: "append" });
@@ -88,7 +92,8 @@ function fixture(id = "dsh-synthetic") {
   event("turn/start", { turn: 1 });
   event("step/start", { turn: 1, step });
   event("system/message", { turn: 1, step, message: {
-    id: "system", role: "system", source: { kind: "plugin", plugin: "system-prompt" }, content: [text("SYSTEM PRIVATE CONTEXT")],
+    id: "system", role: "system", source: version === 4 ? { kind: "system-prompt" } : { kind: "plugin", plugin: "system-prompt" },
+    content: [text("SYSTEM PRIVATE CONTEXT")],
   } }, { surfaceOp: "append" });
   return { rows, event, user, assistant, call, result, nextStep, close };
 }
@@ -292,6 +297,94 @@ describe("DSH v3 transcript", () => {
     log.user("A visible question before an unknown required record");
     log.event("custom/required", { text: "must not silently skip" });
     await expect(parseRows(log.close())).rejects.toThrow(/custom\/required|unknown|required|unrecognized/i);
+  });
+});
+
+describe("DSH v4 transcript", () => {
+  const parseV4 = (rows: readonly unknown[]) => parseRows(rows, "session.v4.jsonl");
+
+  it("pairs first-class tool-role results with their calls without exposing the system prompt", async () => {
+    const log = fixture("dsh-v4-synthetic", 4);
+    log.user("Inspect this v4 example");
+    log.assistant([text("Running the reader. ")]);
+    log.call("read", "read", { path: "/synthetic" });
+    log.result("read", [text("V4 TOOL OUTPUT")]);
+    log.nextStep();
+    log.assistant([text("Final v4 response")]);
+    const parsed = await parseV4(log.close());
+    expect(parsed).toMatchObject({ agent: "dsh", id: "dsh-v4-synthetic", cwd: "/synthetic/project" });
+    expect(parsed.entries.filter((entry) => entry.role === "user").map((entry) => entry.text)).toEqual(["Inspect this v4 example"]);
+    expect(parsed.entries.filter((entry) => entry.role === "assistant").map((entry) => entry.text)).toEqual(["Running the reader. ", "Final v4 response"]);
+    const tools = parsed.entries.filter((entry) => entry.role === "tool");
+    expect(tools).toHaveLength(1);
+    expect(tools[0].tool).toMatchObject({ callId: "read", name: "read", result: { type: "success", log: "V4 TOOL OUTPUT" } });
+    expect(sessionToDialogue(parsed)).not.toContain("SYSTEM PRIVATE CONTEXT");
+  });
+
+  it("pairs v4 dialogue answers with their questions, including custom replies", async () => {
+    const log = fixture("dsh-v4-synthetic", 4);
+    log.user("Please ask before selecting storage");
+    log.call("ask", "ask_user_question", { questions: [questions[0], questions[2]] });
+    log.result("ask", [text(JSON.stringify({ answers: [
+      { id: "database", selected: ["SQLite"], custom: "本地优先" },
+      { id: "notes", selected: [] },
+    ] }))]);
+    const parsed = await parseV4(log.close());
+    expect(parsed.entries.filter((entry) => entry.kind === "question").map((entry) => entry.data?.questionId)).toEqual(["database", "notes"]);
+    const decisions = parsed.entries.filter((entry) => entry.kind === "decision");
+    expect(decisions.map((entry) => entry.data?.questionId)).toEqual(["database", "notes"]);
+    expect(decisions[0]?.text).toContain("回答「Which database?」：\nSQLite\n本地优先");
+    expect(decisions[1]?.text).toContain("（未选择）");
+  });
+
+  it("preserves original human questions across v4 compact-checkpoint replacements", async () => {
+    const log = fixture("dsh-v4-synthetic", 4);
+    const humanSeq = log.user("Original v4 question");
+    log.assistant([text("Original v4 answer")]);
+    const assistantSeq = log.rows.length - 2;
+    log.event("compaction/start", { compactionId: "compact", turn: 1 });
+    log.event("compaction/summary", { compactionId: "compact", summary: [text("Public v4 summary")],
+      shadowedRange: { start: humanSeq, end: assistantSeq }, shadowedSeqs: [humanSeq, assistantSeq], shadowedTokenCount: 12, provider: "mock", model: "mock" });
+    log.user("MODEL-ONLY V4 CHECKPOINT BODY", { kind: "compact-checkpoint", compactionId: "compact" }, {
+      surfaceOp: { op: "replace", startSeq: humanSeq, endSeq: assistantSeq }, sourceEventSeqs: [humanSeq, assistantSeq],
+    });
+    log.event("compaction/end", { compactionId: "compact", turn: 1 });
+    const parsed = await parseV4(log.close());
+    const dialogue = sessionToDialogue(parsed);
+    expect(dialogue).toContain("Original v4 question");
+    expect(dialogue).toContain("Original v4 answer");
+    expect(dialogue).toContain("Public v4 summary");
+    expect(dialogue).not.toContain("MODEL-ONLY V4 CHECKPOINT BODY");
+  });
+
+  it("keeps the embedded fork prefix once under a seeded v4 header", async () => {
+    const log = fixture("v4-fork-synthetic", 4);
+    log.rows[0] = { ...header(4, "v4-fork-synthetic"), isSeeded: true, parentSession: "absent-parent" };
+    log.user("Inherited v4 question");
+    log.assistant([text("Inherited v4 answer")]);
+    log.close();
+    log.event("session/end-seed", { inherited: true });
+    const parsed = await parseV4(log.rows);
+    expect(parsed.entries.map((entry) => entry.text)).toEqual(["Inherited v4 question", "Inherited v4 answer"]);
+  });
+
+  it("classifies v4-only event types as known instead of unknown diagnostics", async () => {
+    const log = fixture("dsh-v4-synthetic", 4);
+    log.user("Check diagnostics");
+    log.event("developer/message", { turn: 1, step: 1, message: {
+      id: "dev", role: "developer", source: { kind: "runtime-context" }, content: [text("DEVELOPER PRIVATE TEXT")],
+    } }, { surfaceOp: "append" });
+    log.event("workspace/changes", { changes: [] });
+    log.assistant([text("Done")]);
+    const parsed = await parseV4(log.close());
+    expect(parsed.diagnostics?.unknown).toBe(0);
+    expect(parsed.diagnostics?.unknownTypes).toEqual([]);
+    expect(JSON.stringify(parsed.entries)).not.toContain("DEVELOPER PRIVATE TEXT");
+  });
+
+  it("refuses formats newer than v4 instead of guessing a partial transcript", async () => {
+    const path = await writeLog([header(5)], join(await temporaryDirectory(), "session.v5.jsonl"));
+    await expect(refFromDshFile(path)).rejects.toThrow(/v5.*最高支持 v4|更新的存档格式/);
   });
 });
 

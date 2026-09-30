@@ -34,8 +34,8 @@ describe("DSH sources", () => {
     expect(detectAgent([{ type: "session", unrelated: true }])).toBeUndefined();
   });
 
-  it.each(["session.v3.jsonl", "session.v3.jsonl.zstd", "renamed.log"])("reads the authoritative header from %s", async (name) => {
-    const path = await session(join(await root(), name));
+  it.each(["session.v3.jsonl", "session.v3.jsonl.zstd", "session.v4.jsonl", "renamed.log"])("reads the authoritative header from %s", async (name) => {
+    const path = await session(join(await root(), name), name.includes("v4") ? 4 : 3);
     const ref = await refFromFile(path);
     expect(ref).toMatchObject({ agent: "dsh", id: "dsh-fixture", cwd: "/fixture/workspace", startedAt: "1970-01-01T00:00:00.001Z" });
     expect((await parseSession(ref)).entries).toEqual([]);
@@ -45,8 +45,9 @@ describe("DSH sources", () => {
   it("selects the highest generation per session without duplicating historical files", async () => {
     const directory = await root();
     await session(join(directory, "project", "a", "session.jsonl.zstd"), 0);
-    const current = await session(join(directory, "project", "a", "session.v3.jsonl.zstd"));
-    await writeFile(join(directory, "project", "a", "session.v4.jsonl.zstd.tmp"), "not a session");
+    await session(join(directory, "project", "a", "session.v3.jsonl.zstd"));
+    const current = await session(join(directory, "project", "a", "session.v4.jsonl.zstd"), 4);
+    await writeFile(join(directory, "project", "a", "session.v5.jsonl.zstd.tmp"), "not a session");
     const refs = await discoverDsh(directory);
     expect(refs).toHaveLength(1);
     expect(refs[0].path).toBe(current);
@@ -56,8 +57,9 @@ describe("DSH sources", () => {
   it("does not fall back to an older readable generation when the highest version is unsupported", async () => {
     const directory = await root();
     const old = await session(join(directory, "project", "a", "session.jsonl"), 0);
+    await session(join(directory, "project", "a", "session.v4.jsonl"), 4);
     await session(join(directory, "project", "a", "session.v99.jsonl"), 99);
-    await expect(discoverDsh(directory)).rejects.toThrow(/newer format v99/);
+    await expect(discoverDsh(directory)).rejects.toThrow(/更新的存档格式 v99/);
     // An explicit file still means that precise historical artifact.
     expect((await parseSession(await refFromFile(old))).id).toBe("dsh-fixture");
   });
