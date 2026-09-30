@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.0...v0.4.1) (2026-09-30)
+
+
+### Bug Fixes
+
+* keep cross-session search usable around unreadable archives ([722a520](https://github.com/TMYTiMidlY/agent-session-manager/commit/722a5200a91290dbcdf5dec84a9a296e628d29fb))
+
 # [0.4.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.3.0...v0.4.0) (2026-09-30)
 
 

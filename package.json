@@ -1,6 +1,6 @@
 {
   "name": "asmgr",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Search and render coding-agent sessions and public ChatGPT shares as self-contained HTML or Markdown.",
   "license": "MIT",
   "type": "module",
