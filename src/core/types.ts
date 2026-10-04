@@ -15,6 +15,10 @@ export interface SessionRef {
   path: string;
   startedAt?: string;
   updatedAt?: string;
+  /** Filesystem activity, distinct from event timestamps. */
+  mtime?: string;
+  /** Session source file size in bytes (compressed size for .zstd). */
+  size?: number;
   cwd?: string;
   title?: string;
   /** Repository slug (owner/name), when the agent records one. */
@@ -36,6 +40,8 @@ export interface SessionSource {
   lossy: boolean;
   /** Human-readable caveat explaining exactly what the source omitted. */
   warning?: string;
+  /** Expected text-rendering limitations, not parsing/integrity defects. */
+  notices?: string[];
   /** Original remote URL when `path` points at a locally imported snapshot. */
   origin?: string;
 }

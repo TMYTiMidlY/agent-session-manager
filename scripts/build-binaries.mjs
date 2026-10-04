@@ -70,6 +70,10 @@ for (const { label, target, out } of selected) {
   execFileSync("bun", ["build", "--compile", `--target=${target}`, bundle, "--outfile", outfile], {
     stdio: "inherit",
   });
+  const hostLabel = `${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  if (label === hostLabel) {
+    execFileSync(process.execPath, [resolve(root, "scripts/smoke-binary.mjs"), outfile], { stdio: "inherit" });
+  }
 }
 
 console.log(`[binaries] done (${selected.map((t) => t.out).join(", ")})`);

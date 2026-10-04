@@ -17,7 +17,9 @@ HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主�
 
 | 目标 | 命令 |
 |---|---|
-| 列出已知会话 | `asmgr list --agent all` |
+| 列出最近活跃会话 | `asmgr list --agent all --limit 20` |
+| 定位 DSH 当前会话（运行时注入） | `asmgr current` |
+| 按工作目录筛选 / 机器读取 | `asmgr list --agent dsh --cwd "$PWD" --json` |
 | 搜索本地历史 | `asmgr search "关键词" --agent all` |
 | 在单个会话内搜索 | `asmgr search "关键词" --session <session-id>` |
 | 打印一个会话 | `asmgr show <session-id> --agent claude` |
@@ -61,7 +63,7 @@ DSH 读取采用**独立的只读转录解析器**，不再把归档恢复成可
 
 范围保持有限：不递归提取未知插件事件、注入上下文、失败模型尝试或任意 `meta` 的正文；所有具名非 `user` 来源都保持 model-only，不因 `role: user` 就当成人类输入。只显示最终追加消息，packed/embedded 流片段不会重复变成正文；不把压缩 replacement 当成新对话，不重复拼接 fork 的父会话，也不在 `session/end-seed` 处截断后续历史。只显示已知 compact checkpoint 对应的摘要。图片/文件只显示占位符并提示损失；完整工具仍在 text/HTML/Markdown 中保留。HTML/Markdown 暂无独立的主干导出开关。
 
-**兼容策略不是“版本号超出上限就拒读”。** 新版本 header 仍满足已知 JSONL 信封时，继续读取可识别的消息，并标记尚未验证新版本语义；未知事件、内容块、surface 操作和畸形记录产生局部诊断，不丢弃后续可读消息。`show --format json` 的 `diagnostics` 包含 `formatVersion`、处理/忽略/未知计数、未知类型样本及 `issues`（代码、首个非空记录序号、存储 seq、次数；不包含原始 payload）。诊断样本和类型名称有大小上限，省略会明确标记。缺失/未解释内容通过 `source.lossy` 与具体 `source.warning` 暴露：text、dialogue、HTML、Markdown 都显示警告，search 即使没有命中也在 stderr 报出路径与警告。
+**兼容策略不是“版本号超出上限就拒读”。** 新版本 header 仍满足已知 JSONL 信封时，继续读取可识别的消息，并标记尚未验证新版本语义；未知事件、内容块、surface 操作和畸形记录产生局部诊断，不丢弃后续可读消息。`show --format json` 的 `diagnostics` 包含 `formatVersion`、处理/忽略/未知计数、未知类型样本及 `issues`（代码、首个非空记录序号、存储 seq、次数；不包含原始 payload）。诊断样本和类型名称有大小上限，省略会明确标记。缺失/未解释内容通过 `source.lossy` 与具体 `source.warning` 暴露：text、dialogue、HTML、Markdown 都显示警告。search 即使没有命中也汇总解析/兼容性警告；预期的图片/附件占位符属于 `source.notices`，默认不刷 stderr，`--verbose` 才显示，`--quiet` 可关闭全部检索诊断。
 
 这不保证任意未来格式都无需维护：如果压缩算法、信封或实际消息布局发生不兼容变化，仍须扩展读取能力；不把新布局猜成旧布局或声称转录完整。新增无关元数据或 descriptor 版本不要求手动升级 pin。压缩日志需要运行时提供 Zstandard API（Node.js ≥ 22.15）；无法解压、无效 session 文件头、文件名/header 版本不符或同一代存在多种编码时仍明确报错。目录发现始终选最高一代，不自动回退到过期前代；`--file` 单文件始终读取指定归档。
 
@@ -156,12 +158,15 @@ HTML 文件是自包含的：搜索、筛选、可折叠条目、侧栏目录、
 
 ### `asmgr list`
 
-以 tab 分隔的行打印发现的会话：
+默认按源文件 **mtime 降序**（最近活动优先）打印 TSV：`agent`、`session-id`、`path`、`mtime`（UTC ISO 时间）、`size`（字节，压缩文件为压缩大小）、`cwd`。原前三列保持不变；`--sort id` 恢复按 agent/id 排序。mtime 是文件活动时间，不等同于事件时间，也不能证明会话仍在运行。
 
 ```bash
-asmgr list --agent all
-asmgr list --agent claude --claude-root /path/to/claude/projects
+asmgr list --agent dsh --cwd "$PWD" --limit 20
+asmgr list --agent dsh --cwd "$PWD" --json
+asmgr list --agent claude --claude-root /path/to/claude/projects --sort id
 ```
+
+`--cwd` 精确匹配记录的工作目录（规范化相对路径、`~` 和尾部斜杠，不递归包含子目录）；没有 cwd 的会话不匹配。发现阶段只采样 metadata，不构建完整 timeline；Claude/Codex/Copilot 从前 50 条记录提取 cwd，DSH 使用权威 header。`--json` 输出 metadata 数组，`--limit 0` 列出零条。分组的 JSON 输出则是包含 `ref`、project 和条目统计的摘要数组。
 
 用 `--by project` 或 `--by agent` 分组（默认平铺）。project 取会话记录 cwd 最近的、含 `.git/` 的祖先目录（仅当该 cwd 在本机存在时才探测文件系统）；cwd 存在但找不到 `.git` 祖先、或该路径不在本机时，按记录的 cwd 原样分组；只有完全没有 cwd 的会话才归入 `(unscoped)` 桶：
 
@@ -170,7 +175,21 @@ asmgr list --by project     # 按仓库聚类会话
 asmgr list --by agent       # 按 copilot / claude / codex / chatgpt 分组
 ```
 
-分组模式每组打印一个 `# <组> (<数量>)` 头（组间排序，组内按最后活动时间从新到旧），随后是 `组`、`agent`、`session-id`、`最后活动`、`条目数` 的 tab 分隔行。
+分组模式每组打印一个 `# <组> (<数量>)` 头（组间排序，组内按所选排序），随后是 `组`、`agent`、`session-id`、`最后事件时间`、`条目数` 的 tab 分隔行。**分组需要完整解析以统计条目**，比默认 metadata 列表重；解析并发也有上限。
+
+### `asmgr current`
+
+DSH 已提供运行时 `DSH_SESSION_ID` 时，`asmgr current` 直接打印该 ID；`asmgr current --json` 查询该会话的本地 metadata（支持 `--dsh-root`）。变量未设置会明确报错，**不会把最新 mtime 冒充当前会话**。
+
+定位和复盘优先缩小范围，再搜索：
+
+```bash
+id=$(asmgr current)  # 必须在 DSH 的命令执行环境内
+asmgr search "关键词" --agent dsh --session "$id" --role user
+asmgr show "$id" --agent dsh -f dialogue --role user
+# 没有运行时身份时，先按 cwd 查看最近会话，再核对目标 ID
+asmgr list --agent dsh --cwd "$PWD" --limit 5
+```
 
 ### `asmgr search`
 
@@ -183,9 +202,21 @@ asmgr search "database migration" --session <session-id>   # 只在一个会话�
 
 每条命中是一行 tab 分隔、以 `project` 列（cwd 最近的含 `.git` 祖先目录；找不到 `.git` 祖先时为 cwd 原值，无 cwd 时为 `(unscoped)`）开头：`project`、`agent`、`session-id`、`#条目`、`role/kind`、`摘录`。
 
-`--session <id>` 把搜索限定到一个会话（先精确匹配 id，否则按前缀匹配；DSH 的 id 是 `session-<uuid>`，直接给裸 uuid 也可以）——用来在**当前这个会话**里按关键词找模型回复，不必先用 `--file` 指路径。
+`--session <id>` 把搜索限定到一个会话（先精确匹配 id，否则按前缀匹配；DSH 的 id 是 `session-<uuid>`，直接给裸 uuid 也可以）。前缀或重复 ID 有歧义时拒绝，要求更长 ID 或 `--agent`/`--file` 缩小范围，不再随意选第一个。
 
-跨会话搜索对每个会话独立解析：遇到官方迁移器拒绝或损坏的存档时，在 stderr 逐条报出路径与原因后跳过，不中断其余会话的检索；stdout 的命中行不受影响。
+- 默认按会话源文件 mtime 降序检索，**同一会话内保持原 timeline 顺序**。达到 `-l/--limit` 即停止安排下一批；`--concurrency`（别名 `-j`，默认 2，范围 1–32）限制 worker 并发和预读，最多多读一批中的其余会话。`-j 1` 完全串行、无会话预读。worker 不可用时回退到同一规范读取器，不把运行时能力缺失误报成损坏会话；`--verbose` 显示实际 backend。并行度过大会增加内存，不保证越大越快。
+- `--no-early-exit` 扫描整个工作集以检查诊断，但仍只输出 limit 条；`-l 0` 不发现/读取会话。关键词为空、非整数或负 limit 明确报错。**命中总数不足 limit 时仍必须全扫**，这不代表提前终止失效。
+- `--cwd <path>` 与 list 的过滤语义相同；`--role user|assistant|tool|reasoning|system|event` 只搜指定规范化角色。
+- 只搜索可见的规范转录：不对原始 JSON 做全文搜索，因此不会误命中注入上下文、失败尝试或未知插件 payload。压缩读取采用严格增量帧扫描，不为搜索/list 整文件解压，不依赖本机 DSH。
+- 无法读取的会话不阻止其他会话命中；stderr 汇总次数并保留少量路径样本，解析/兼容性警告按同类去重。附件占位符默认静默；`--verbose` 查看逐条详情与附件说明，`-q/--quiet` 关闭全部检索诊断。完整导出的保真度警告仍保留。
+
+#### 派生缓存与隐私
+
+search 默认缓存**规范转录的可搜索文本索引**（包括工具文本与诊断，不是原始日志或完整 timeline），避免每次全库查询都重新解压与重建 timeline。热查询先用已校验的 UTF16 三字符 Bloom 摘要保守排除不含关键词的会话（允许误报，不漏报）；不足 3 个 UTF16 单元的短关键词绕过 Bloom，再用已校验的文本索引字节预筛。可能命中时回读规范源，确保工具详情、摘录和原 index 不改变。缓存由源路径、agent/id 与文件 stat（mtime、size、ctime、inode）校验；源变化自动失效，读取过程中变化的源不写缓存。一个会话只占一个可替换槽位，不保留每次修改的旧版本。缓存格式/解析语义有独立版本；坏缓存、只读缓存目录或写入失败会回退原始解析，不影响命中。
+
+路径优先级：`--cache-dir <path>` → `ASMGR_CACHE_HOME` → `${XDG_CACHE_HOME:-~/.cache}/asmgr`；实际文件在 `search/search-text-1/`。每个逻辑槽位包含 gzip 文本索引与小型 `.meta.json` 摘要；目录为 `0700`，文件为 `0600`。**gzip 不是加密**，缓存可能含私密对话和工具输出，应和会话历史一样保护，并从云同步/公开备份中排除。单个快照超过 128 MiB 时不缓存。`--no-cache` 完全绕开缓存的读写，也适合完整原始读取验收；缓存可删除并随下一次查询重建，但删除缓存不等于删除原始会话。Copilot 实时 SQLite/db-turns 不使用持久负索引：WAL 里的新消息可能不改变主 DB 的 stat，不能据此跳过检索。
+
+冷首次全库查询仍须处理所有候选历史（不足 limit 时无法免除），后续关键词共享缓存；没有后台索引服务，不触碰原生历史目录。库 API 的 `searchRefs` 不默认写缓存，只有调用方显式传 `cacheDir` 才使用。
 
 ### `asmgr import`
 
@@ -240,6 +271,25 @@ asmgr show 'https://chatgpt.com/share/<id>' --format dialogue
 ```
 
 `--format dialogue` 只保留**用户消息 / 交互式提问与选项 / 用户决策或回答 / 压缩摘要 / 助手回复**，跳过普通工具调用的全部内容与 reasoning。DSH 的 `ask_user_question` 保留题目、全部选项、单/多选信息、选中项和自由回答；Copilot 的 `ask_user` 保留题目、全部候选项及回答。工具噪音被剔掉后，每条用户 prompt 直接紧跟回答它的助手回复，prompt↔回复的对应关系一目了然——适合会话复盘、交接和收尾盘点等需要通读对话主干的场景。`--format text` 则含完整工具参数+结果、子代理/技能/计划/压缩统计。
+
+#### dialogue 头部与角色过滤
+
+`show -f dialogue` 每个条目的头部为 `## N. role/kind 时间戳`：`N` 是完整 timeline 中从 1 开始的原始位置，过滤后不会重编号；时间戳若来源没有记录则省略。dialogue 不把自由文本标题插进头部；text 格式可能包含标题。文件开头还有 session/agent/cwd/started/warning metadata。
+
+```text
+## 3. user/message 2026-10-04T17:00:00.000Z
+
+用户原话
+```
+
+无需用正则猜头部提取用户发言：
+
+```bash
+asmgr show <id> --agent dsh -f dialogue --role user
+asmgr show <id> --agent dsh -f json --role user  # 机器处理建议 JSON
+```
+
+`--role` 同样适用于 text/JSON，保留原 index；dialogue 的角色过滤仍与主干过滤取交集。
 
 ### `asmgr html`
 

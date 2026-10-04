@@ -1,6 +1,8 @@
 import { basename, dirname, join } from "node:path";
 import type { ParsedSession, SessionRef, TimelineEntry } from "../types.js";
 import { expandHome, iterateJsonl, readJsonl, walkFiles } from "../fs.js";
+import { mapConcurrent } from "../concurrency.js";
+import { sessionMetadata } from "../session-metadata.js";
 import { DshDiagnostics, DSH_LOG_ONLY_TYPES, eventMessage, isoTime, readDshEvent, readDshHeader, record, type DshEvent } from "./dsh-reader.js";
 
 // A read-only transcript is not a resumable runtime state. Decode stable
@@ -42,18 +44,26 @@ function headerRef(path: string, header: unknown): SessionRef {
 
 export async function refFromDshFile(path: string): Promise<SessionRef> {
   try {
-    return headerRef(path, (await readJsonl(path, 1))[0]);
+    return sessionMetadata(headerRef(path, (await readJsonl(path, 1))[0]));
   } catch (error) {
     throw new Error(`无法读取 DSH 会话 ${path}：${errorMessage(error)}`, { cause: error });
+  }
+}
+
+/** Directory scans retain bad current generations so one damaged sibling cannot blind the store. */
+export async function discoverDshRef(path: string): Promise<SessionRef> {
+  try {
+    return await refFromDshFile(path);
+  } catch (error) {
+    return sessionMetadata({ agent: "dsh", id: basename(dirname(path)), path,
+      source: { kind: "events", path, lossy: true, warning: errorMessage(error) } });
   }
 }
 
 export async function discoverDsh(root?: string): Promise<SessionRef[]> {
   const directory = expandHome(root ?? join(process.env.DSH_HOME || "~/.dsh", "sessions"));
   const files = selectDshGenerations(await walkFiles(directory, (path) => dshLogVersion(path) !== undefined));
-  const refs: SessionRef[] = [];
-  for (const path of files) refs.push(await refFromDshFile(path));
-  return refs;
+  return mapConcurrent(files, 8, discoverDshRef);
 }
 
 export async function parseDsh(ref: SessionRef): Promise<ParsedSession> {
@@ -143,7 +153,7 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
     }
     const answers = readAnswers(content, pending.questions.map(({ question }) => question));
     if (!answers) {
-      warnings.add("部分提问结果不符合官方问答格式，未推断回答");
+      report.add("invalid-answer", "部分提问结果不符合官方问答格式，未推断回答", current);
       return;
     }
     for (const { question } of pending.questions) {
@@ -336,10 +346,11 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
       for (const { entry } of pending.questions) entry.text += "\n\n（未记录可匹配的回答）";
     }
   }
+  const notices = [...warnings];
   const diagnosticWarning = report.finish();
   if (diagnosticWarning) warnings.add(diagnosticWarning);
   return { ...ref, title, updatedAt,
-    source: { kind: "events", path: ref.path, lossy: warnings.size > 0, warning: warnings.size ? [...warnings].join("；") : undefined },
+    source: { kind: "events", path: ref.path, lossy: warnings.size > 0, warning: warnings.size ? [...warnings].join("；") : undefined, ...(notices.length ? { notices } : {}) },
     entries, diagnostics };
 }
 

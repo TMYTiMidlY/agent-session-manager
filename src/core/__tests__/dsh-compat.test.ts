@@ -143,17 +143,17 @@ describe("DSH read-only compatibility contract", () => {
       expect(rendered).toContain("Answer");
       expect(rendered).not.toContain("PRIVATE FUTURE PAYLOAD");
     }
-    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(await searchRefs([ref], "not present")).toEqual([]);
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("future/required"));
+    const diagnostic = vi.fn();
+    expect(await searchRefs([ref], "not present", 20, { onDiagnostic: diagnostic })).toEqual([]);
+    expect(diagnostic).toHaveBeenCalledWith(expect.objectContaining({ kind: "warning", message: expect.stringContaining("future/required") }));
   });
 
   it("retains per-session search resilience for genuine file I/O errors", async () => {
     const { ref } = await log([header(4), user(0, "needle")]);
-    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
-    const hits = await searchRefs([{ ...ref, path: join(directories[0], "missing.jsonl") }, ref], "needle");
+    const diagnostic = vi.fn();
+    const hits = await searchRefs([{ ...ref, path: join(directories[0], "missing.jsonl") }, ref], "needle", 20, { onDiagnostic: diagnostic });
     expect(hits).toHaveLength(1);
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("跳过无法解析"));
+    expect(diagnostic).toHaveBeenCalledWith(expect.objectContaining({ kind: "unreadable" }));
   });
 
   it.each(["invalid", [], ["bad"], [[2, 1]], [[-1, 0]], [0, "bad"]].map(sourceEventSeqs => ({ sourceEventSeqs })))("does not infer decisions with unusable explicit provenance $sourceEventSeqs", async ({ sourceEventSeqs }) => {

@@ -8,13 +8,14 @@ import { describe, expect, it } from "vitest";
 import type { ParsedSession } from "../core/index.js";
 import { sourceLabelForSession, summaryMismatchWarning } from "./render-options.js";
 
-const execFileAsync = promisify(execFile);
+const execute = promisify(execFile);
+const execFileAsync = (command: string, args: string[]) => execute(command, args.includes("search") ? [...args, "--no-cache"] : args);
 const here = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const repoRoot = resolve(here, "../..");
 const tsx = resolve(repoRoot, "node_modules/.bin/tsx");
 const cli = resolve(here, "index.ts");
 
-describe("asmgr cli", () => {
+describe("asmgr cli", { timeout: 20000 }, () => {
   it("searches fixture sessions through root overrides", async () => {
     const { stdout } = await execFileAsync(tsx, [
       cli,
@@ -35,7 +36,7 @@ describe("asmgr cli", () => {
       "search",
       "message",
       "--file",
-      resolve(repoRoot, "fixtures"),
+      resolve(repoRoot, "fixtures/codex"),
       "--session",
       "codex-fixt",
       "--limit",

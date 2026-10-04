@@ -99,7 +99,7 @@ describe("discoverPath", () => {
     await cp(fixtures, cache, { recursive: true });
     const hits = await searchRefs(await discoverPath(cache), "gamma");
     expect(hits.some((hit) => hit.session.agent === "codex")).toBe(true);
-    expect(findSessionAmong(await discoverPath(cache), "copilot-fixture")?.agent).toBe("copilot");
+    expect(findSessionAmong(await discoverPath(join(cache, "copilot")), "copilot-fixture")?.agent).toBe("copilot");
   });
 });
 

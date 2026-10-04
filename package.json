@@ -22,7 +22,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "dev": "tsx src/cli/index.ts",
     "prepare": "node scripts/bundle.mjs",
-    "test": "vitest run",
+    "test": "tsc -p tsconfig.json && vitest run",
     "release": "semantic-release"
   },
   "devDependencies": {

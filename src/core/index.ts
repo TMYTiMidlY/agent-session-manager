@@ -3,19 +3,25 @@ export * from "./types.js";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, SessionSource, TimelineEntry } from "./types.js";
-import { discoverClaude, parseClaude } from "./adapters/claude.js";
-import { discoverCodex, parseCodex } from "./adapters/codex.js";
-import { discoverCopilot, parseCopilot } from "./adapters/copilot.js";
-import { discoverDsh, dshLogVersion, isDshHeader, parseDsh, refFromDshFile, selectDshGenerations } from "./adapters/dsh.js";
+import { discoverClaude } from "./adapters/claude.js";
+import { discoverCodex } from "./adapters/codex.js";
+import { discoverCopilot } from "./adapters/copilot.js";
+import { discoverDsh, discoverDshRef, dshLogVersion, isDshHeader, refFromDshFile, selectDshGenerations } from "./adapters/dsh.js";
 import {
   discoverChatGpt,
   isChatGptShareSnapshot,
   isHttpUrl,
-  parseChatGpt,
   refFromChatGptFile,
   refFromChatGptUrl,
 } from "./adapters/chatgpt.js";
-import { excerpt, stringifyInline, timelineEntrySearchText } from "./text.js";
+import { stringifyInline, timelineEntrySearchText } from "./text.js";
+import { parseSession } from "./parse.js";
+import { searchRefs, type SearchOptions } from "./search.js";
+import { enrichSessionRefs, sortSessionRefs } from "./session-metadata.js";
+import { mapConcurrent } from "./concurrency.js";
+export { parseSession, searchRefs };
+export type { SearchOptions, SearchDiagnostic } from "./search.js";
+export { sortSessionRefs, filterSessionCwd } from "./session-metadata.js";
 import { expandHome, fileStem, parentName, pathExists, readJson, readJsonl, walkFiles } from "./fs.js";
 import { deriveProject } from "./project.js";
 
@@ -41,15 +47,7 @@ export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: Agen
   if (agents.includes("codex")) found.push(...(await discoverCodex(roots.codex)));
   if (agents.includes("chatgpt")) found.push(...(await discoverChatGpt(roots.chatgpt)));
   if (agents.includes("dsh")) found.push(...(await discoverDsh(roots.dsh)));
-  return found.sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
-}
-
-export async function parseSession(ref: SessionRef): Promise<ParsedSession> {
-  if (ref.agent === "copilot") return parseCopilot(ref);
-  if (ref.agent === "claude") return parseClaude(ref);
-  if (ref.agent === "codex") return parseCodex(ref);
-  if (ref.agent === "dsh") return parseDsh(ref);
-  return parseChatGpt(ref);
+  return sortSessionRefs(await enrichSessionRefs(found));
 }
 
 export async function findSession(id: string, agents: AgentKind[] = AGENTS, roots: AgentRoots = {}): Promise<SessionRef | undefined> {
@@ -57,59 +55,17 @@ export async function findSession(id: string, agents: AgentKind[] = AGENTS, root
 }
 
 export function findSessionAmong(refs: SessionRef[], id: string): SessionRef | undefined {
-  // DSH ids are "session-<uuid>"; a bare uuid reference still selects them.
-  for (const needle of id.startsWith("session-") ? [id] : [id, `session-${id}`]) {
-    const found = refs.find((session) => session.id === needle) ?? refs.find((session) => session.id.startsWith(needle));
-    if (found) return found;
-  }
-  return undefined;
+  if (!id) return undefined;
+  // Exact matches take priority across agents and the DSH bare-UUID alias.
+  const needles = id.startsWith("session-") ? [id] : [id, `session-${id}`];
+  const exact = refs.filter(session => needles.includes(session.id));
+  const matches = exact.length ? exact : refs.filter(session => needles.some(needle => session.id.startsWith(needle)));
+  if (matches.length > 1) throw new Error(`ambiguous session id: ${id}; use a longer id or --agent/--file`);
+  return matches[0];
 }
 
-export async function searchSessions(query: string, agents: AgentKind[] = AGENTS, roots: AgentRoots = {}, limit = 20): Promise<SearchHit[]> {
-  return searchRefs(await discoverSessions(agents, roots), query, limit);
-}
-
-export async function searchRefs(refs: SessionRef[], query: string, limit = 20): Promise<SearchHit[]> {
-  const hits: SearchHit[] = [];
-  const needle = query.toLowerCase();
-  let skipped = 0;
-  for (const ref of refs) {
-    let parsed;
-    try {
-      parsed = await parseSession(ref);
-    } catch (error) {
-      // One unreadable archive must not blind the search across the rest of the store;
-      // keep the per-session refusal visible instead of custom remediation.
-      skipped++;
-      console.error(`跳过无法解析的会话 ${ref.path}：${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    // Search must expose partial reads even when the query finds no hits.
-    if (parsed.agent === "dsh" && parsed.source?.warning) console.error(`读取会话 ${ref.path} 的警告：${parsed.source.warning}`);
-    for (const entry of parsed.entries) {
-      const searchText = timelineEntrySearchText(entry);
-      if (!searchText.toLowerCase().includes(needle)) continue;
-      hits.push({
-        session: {
-          agent: parsed.agent,
-          id: parsed.id,
-          path: parsed.path,
-          startedAt: parsed.startedAt,
-          updatedAt: parsed.updatedAt,
-          cwd: parsed.cwd,
-          title: parsed.title,
-          repository: parsed.repository,
-          branch: parsed.branch,
-          source: parsed.source,
-        },
-        entry,
-        excerpt: excerpt(searchText, query),
-      });
-      if (hits.length >= limit) return hits;
-    }
-  }
-  if (skipped > 0) console.error(`已跳过 ${skipped} 个无法解析的会话（详见上方各条路径与原因）`);
-  return hits;
+export async function searchSessions(query: string, agents: AgentKind[] = AGENTS, roots: AgentRoots = {}, limit = 20, options: SearchOptions = {}): Promise<SearchHit[]> {
+  return searchRefs(await discoverSessions(agents, roots), query, limit, options);
 }
 
 /** A lightweight per-session summary used by project-grouped listings and index pages. */
@@ -276,15 +232,15 @@ export async function discoverPath(path: string, agentOverride?: AgentKind): Pro
   const abs = expandHome(path);
   if (!(await pathExists(abs))) throw new Error(`path not found: ${path}`);
   const info = await stat(abs);
-  if (info.isFile()) return [await refFromFile(abs, agentOverride)];
+  if (info.isFile()) return enrichSessionRefs([await refFromFile(abs, agentOverride)]);
   const files = selectDshGenerations(await walkFiles(
     abs,
     (candidate) => candidate.endsWith(".jsonl") || candidate.endsWith(".chatgpt-share.json")
       || (candidate.endsWith(".jsonl.zstd") && dshLogVersion(candidate) !== undefined),
   ));
-  const refs: SessionRef[] = [];
-  for (const file of files) refs.push(await refFromFile(file, agentOverride));
-  return refs.sort((a, b) => a.agent.localeCompare(b.agent) || a.id.localeCompare(b.id));
+  const refs = await mapConcurrent(files, 8, file => dshLogVersion(file) !== undefined && (!agentOverride || agentOverride === "dsh")
+    ? discoverDshRef(file) : refFromFile(file, agentOverride));
+  return sortSessionRefs(await enrichSessionRefs(refs));
 }
 
 /**

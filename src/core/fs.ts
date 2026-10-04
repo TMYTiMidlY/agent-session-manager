@@ -3,7 +3,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import * as zlib from "node:zlib";
-import { Readable } from "node:stream";
+import { StringDecoder } from "node:string_decoder";
+import { splitZstdFrames } from "./zstd.js";
 
 export function expandHome(path: string): string {
   return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
@@ -46,30 +47,31 @@ function parseJsonlLine(line: string): unknown {
   }
 }
 
-/** Node decodes one Zstandard frame per call; engine.bytesWritten identifies the next frame. */
-async function* zstdFrames(path: string): AsyncGenerator<Buffer> {
+/** Decode exactly one scanned frame at a time; Node's stream decoder can lose concatenated frames. */
+async function* zstdText(path: string): AsyncGenerator<string> {
   if (typeof zlib.zstdDecompressSync !== "function") {
     throw new Error("读取 DSH .jsonl.zstd 需要支持 Zstandard 的运行时（Node.js >= 22.15）；也可读取未压缩的 .jsonl 文件");
   }
-  const bytes = await readFile(path);
-  let offset = 0;
-  while (offset < bytes.length) {
-    // @types/node currently omits the documented info:true return overload.
-    const result = zlib.zstdDecompressSync(bytes.subarray(offset), { info: true }) as unknown as {
-      buffer: Buffer; engine: { bytesWritten: number };
-    };
-    const consumed = result.engine?.bytesWritten;
-    if (!Buffer.isBuffer(result.buffer) || !Number.isSafeInteger(consumed) || consumed <= 0 || consumed > bytes.length - offset) {
-      throw new Error("当前运行时不支持 Zstandard 帧读取，请使用 Node.js >= 22.15");
+  const source = createReadStream(path);
+  const utf8 = new StringDecoder("utf8");
+  try {
+    for await (const frame of splitZstdFrames(source)) {
+      const text = utf8.write(zlib.zstdDecompressSync(frame));
+      if (text) yield text;
     }
-    offset += consumed;
-    yield result.buffer;
+    const tail = utf8.end();
+    if (tail) yield tail;
+  } finally {
+    // Do not prefetch decoded frames with Readable.from: sampling must not
+    // inspect a corrupt trailing frame. Also await the actual fd closure.
+    source.destroy();
+    if (!source.closed) await new Promise<void>((resolve) => source.once("close", resolve));
   }
 }
 
 export async function* iterateJsonl(path: string): AsyncGenerator<unknown> {
   const stream = path.endsWith(".jsonl.zstd")
-    ? Readable.from(zstdFrames(path)).setEncoding("utf8")
+    ? zstdText(path)
     : createReadStream(path, { encoding: "utf8" });
   let fragments: string[] = [];
   try {
@@ -95,7 +97,7 @@ export async function* iterateJsonl(path: string): AsyncGenerator<unknown> {
     const tail = fragments.join("");
     if (tail.trim()) yield parseJsonlLine(tail);
   } finally {
-    stream.destroy();
+    if ("destroy" in stream) stream.destroy();
   }
 }
 

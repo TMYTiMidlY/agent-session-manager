@@ -4,7 +4,7 @@ import { buildProgram } from "./program.js";
 describe("buildProgram", () => {
   it("registers the expected top-level commands", () => {
     const names = buildProgram().commands.map((command) => command.name()).sort();
-    expect(names).toEqual(["backup", "html", "import", "list", "md", "search", "show"]);
+    expect(names).toEqual(["backup", "current", "html", "import", "list", "md", "search", "show"]);
   });
 
   it("names the binary from the shared brand constant", () => {

@@ -4,6 +4,7 @@ import {
   discoverSessions,
   findSession,
   findSessionAmong,
+  filterSessionCwd,
   isHttpUrl,
   refFromUrl,
   type AgentKind,
@@ -42,8 +43,10 @@ export function rootsFromOptions(opts: Record<string, unknown>): AgentRoots {
 /** Resolve the working set of sessions from --file/--events or the live agent homes. */
 export async function resolveRefs(opts: Record<string, unknown>): Promise<SessionRef[]> {
   const file = filePathFromOptions(opts);
-  if (file) return discoverPath(file, agentOverrideFromOptions(opts));
-  return discoverSessions(parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
+  const refs = file
+    ? await discoverPath(file, agentOverrideFromOptions(opts))
+    : await discoverSessions(parseAgents(String(opts.agent ?? "all")), rootsFromOptions(opts));
+  return filterSessionCwd(refs, typeof opts.cwd === "string" ? opts.cwd : undefined);
 }
 
 /** Resolve exactly one session for show/html/md. */

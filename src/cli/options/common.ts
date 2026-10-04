@@ -1,10 +1,26 @@
-import type { Command } from "commander";
+import { InvalidArgumentError, Option, type Command } from "commander";
 
 /**
  * Reusable option groups shared by the read commands (list/search/show/html/md).
  * Each helper mutates and returns the command so they compose left-to-right and
  * preserve the historical `--help` option order.
  */
+
+export function nonNegativeInteger(value: string): number {
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new InvalidArgumentError("must be a non-negative integer");
+  return Number(value);
+}
+
+export function searchConcurrency(value: string): number {
+  const count = nonNegativeInteger(value);
+  if (count < 1 || count > 32) throw new InvalidArgumentError("must be between 1 and 32");
+  return count;
+}
+
+export function withRole(cmd: Command): Command {
+  return cmd.addOption(new Option("--role <role>", "filter normalized timeline role")
+    .choices(["user", "assistant", "tool", "reasoning", "system", "event"]));
+}
 
 /** `-a, --agent` selector. */
 export function withAgent(cmd: Command): Command {

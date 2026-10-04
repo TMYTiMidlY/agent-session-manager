@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { BIN_NAME } from "./brand.js";
 import { VERSION } from "./version.js";
 import { buildListCommand } from "./commands/list.js";
+import { buildCurrentCommand } from "./commands/current.js";
 import { buildSearchCommand } from "./commands/search.js";
 import { buildShowCommand } from "./commands/show.js";
 import { buildHtmlCommand } from "./commands/html.js";
@@ -17,6 +18,7 @@ export function buildProgram(): Command {
     .description("Search and render coding-agent sessions and public ChatGPT shares")
     .version(VERSION);
   program.addCommand(buildListCommand());
+  program.addCommand(buildCurrentCommand());
   program.addCommand(buildSearchCommand());
   program.addCommand(buildShowCommand());
   program.addCommand(buildHtmlCommand());
