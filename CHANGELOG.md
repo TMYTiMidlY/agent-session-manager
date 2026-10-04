@@ -1,3 +1,10 @@
+## [0.4.2](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.1...v0.4.2) (2026-10-04)
+
+
+### Bug Fixes
+
+* read DSH archives without pinning runtime codecs ([0936b7e](https://github.com/TMYTiMidlY/agent-session-manager/commit/0936b7eaf6c8711db9080a82ba4e8cabf3f44b0d))
+
 ## [0.4.1](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.0...v0.4.1) (2026-09-30)
 
 
