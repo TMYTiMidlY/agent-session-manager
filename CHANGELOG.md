@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.2...v0.5.0) (2026-10-04)
+
+
+### Features
+
+* make session discovery and indexed search recent-first ([b1c8588](https://github.com/TMYTiMidlY/agent-session-manager/commit/b1c858855a809150e4277aa4b3ba37bd5c2ba2f8))
+
 ## [0.4.2](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.1...v0.4.2) (2026-10-04)
 
 
