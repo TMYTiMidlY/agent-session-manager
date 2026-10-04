@@ -55,11 +55,15 @@ asmgr show --file /path/to/session.jsonl.zstd --format dialogue
 asmgr html <session-id> --agent dsh -o dsh-session.html
 ```
 
-以官方 [`dsh-v0.1.5-rc.1`](https://github.com/deepseek-ai/deepseek-harness/tree/dsh-v0.1.5-rc.1) 为基线，直接使用 `dsh-session-format-catalog` 的 v0→v3 解码/迁移及 `dsh-session/surface` 的原始追加消息筛选。v4 存档复用官方 `dsh-session-format-v3-to-v4` 所依赖的 released v2 物理帧解码，再按 v4 词汇表（一等 tool-role 结果、`compact-checkpoint` 等生产者自有 source kind）投影；不升级已锁定的官方依赖。迁移在内存中进行，不依赖本机 DSH 安装、不启动插件、不改写源日志。主干包含直接用户输入、助手正文，以及原生或 PTC 调用中 `ask_user_question` 的题目、全部选项与匹配的回答；普通工具的参数和结果完全不显示。回答按官方格式记录，不额外推断回答者身份。
+DSH 读取采用**独立的只读转录解析器**，不再把归档恢复成可运行的 DSH Session，也不依赖或打包 DSH 的 codec/runtime 包。解析器区分字节与压缩、JSONL 事件信封、可见消息投影三个边界；保留 v0–v4 的已知布局，包括旧版平铺消息、packed 流片段、steering/compact/code-dispatch 别名、v3 工具结果包装与 v4 一等 tool-role 结果。子代理描述、团队状态等非转录元数据按事件名有意忽略，**descriptor 子格式升级不会阻止读取对话**；不检查这些 payload 的私有版本，不改写源日志，不加载本机 DSH 或启动插件。
 
-范围保持有限：不解释未知插件事件、注入上下文、失败模型尝试或任意 `meta`；不把压缩 replacement 当成新对话，不重复拼接 fork 的父会话。只显示官方 compact checkpoint 对应的摘要。图片/文件只显示占位符并提示损失；完整工具仍在 text/HTML/Markdown 中保留。HTML/Markdown 暂无独立的主干导出开关。
+主干包含直接用户输入、助手正文，以及原生或 PTC 调用中 `ask_user_question` 的题目、全部选项与匹配的回答；普通工具的参数和结果完全不显示。回答须有可验证的调用关联与完整问答格式：显式来源失效、重复标识或序号造成歧义、PTC 开始/结束的身份或参数不一致时不推断用户决策。
 
-压缩日志需要运行时提供 Zstandard API（Node.js ≥ 22.15）；运行时缺少帧解码能力时明确报错，不把未读取内容当空会话。未知版本（含比已支持最高代 v4 更新的存档）、官方迁移器拒绝的旧日志、损坏或未写完的文件会报出路径与原因，不尝试自定义补救，也不会自动回退到旧一代文件。已知官方边界包括 v0 中的 `subagent/descriptor.version: 2`：最新迁移器明确拒绝它；不能仅把该字段改成 3 来冒充兼容。
+范围保持有限：不递归提取未知插件事件、注入上下文、失败模型尝试或任意 `meta` 的正文；所有具名非 `user` 来源都保持 model-only，不因 `role: user` 就当成人类输入。只显示最终追加消息，packed/embedded 流片段不会重复变成正文；不把压缩 replacement 当成新对话，不重复拼接 fork 的父会话，也不在 `session/end-seed` 处截断后续历史。只显示已知 compact checkpoint 对应的摘要。图片/文件只显示占位符并提示损失；完整工具仍在 text/HTML/Markdown 中保留。HTML/Markdown 暂无独立的主干导出开关。
+
+**兼容策略不是“版本号超出上限就拒读”。** 新版本 header 仍满足已知 JSONL 信封时，继续读取可识别的消息，并标记尚未验证新版本语义；未知事件、内容块、surface 操作和畸形记录产生局部诊断，不丢弃后续可读消息。`show --format json` 的 `diagnostics` 包含 `formatVersion`、处理/忽略/未知计数、未知类型样本及 `issues`（代码、首个非空记录序号、存储 seq、次数；不包含原始 payload）。诊断样本和类型名称有大小上限，省略会明确标记。缺失/未解释内容通过 `source.lossy` 与具体 `source.warning` 暴露：text、dialogue、HTML、Markdown 都显示警告，search 即使没有命中也在 stderr 报出路径与警告。
+
+这不保证任意未来格式都无需维护：如果压缩算法、信封或实际消息布局发生不兼容变化，仍须扩展读取能力；不把新布局猜成旧布局或声称转录完整。新增无关元数据或 descriptor 版本不要求手动升级 pin。压缩日志需要运行时提供 Zstandard API（Node.js ≥ 22.15）；无法解压、无效 session 文件头、文件名/header 版本不符或同一代存在多种编码时仍明确报错。目录发现始终选最高一代，不自动回退到过期前代；`--file` 单文件始终读取指定归档。
 
 ## <a id="install"></a>安装
 

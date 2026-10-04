@@ -292,11 +292,17 @@ describe("DSH v3 transcript", () => {
     ]);
   });
 
-  it("refuses unknown required records instead of silently producing a partial transcript", async () => {
+  it("continues after unknown required records with explicit payload-free diagnostics", async () => {
     const log = fixture();
     log.user("A visible question before an unknown required record");
-    log.event("custom/required", { text: "must not silently skip" });
-    await expect(parseRows(log.close())).rejects.toThrow(/custom\/required|unknown|required|unrecognized/i);
+    log.event("custom/required", { text: "PRIVATE UNKNOWN CONTENT" });
+    log.assistant([text("Visible answer after the unknown record")]);
+    const parsed = await parseRows(log.close());
+    expect(parsed.entries.map(entry => entry.text)).toEqual(["A visible question before an unknown required record", "Visible answer after the unknown record"]);
+    expect(parsed.diagnostics).toMatchObject({ unknown: 1, unknownTypes: ["custom/required"], issues: [{ code: "unknown-event", type: "custom/required", count: 1 }] });
+    expect(parsed.source).toMatchObject({ lossy: true });
+    expect(parsed.source?.warning).toContain("custom/required");
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE UNKNOWN CONTENT");
   });
 });
 
@@ -382,9 +388,17 @@ describe("DSH v4 transcript", () => {
     expect(JSON.stringify(parsed.entries)).not.toContain("DEVELOPER PRIVATE TEXT");
   });
 
-  it("refuses formats newer than v4 instead of guessing a partial transcript", async () => {
-    const path = await writeLog([header(5)], join(await temporaryDirectory(), "session.v5.jsonl"));
-    await expect(refFromDshFile(path)).rejects.toThrow(/v5.*最高支持 v4|更新的存档格式/);
+  it("reads known message layouts under future headers with an explicit compatibility caveat", async () => {
+    const log = fixture("future", 4);
+    log.rows[0] = { ...header(5, "future"), futureHeader: { version: 12 } };
+    log.user("Future human question");
+    log.assistant([text("Future assistant answer")]);
+    const parsed = await parseRows(log.close(), "session.v5.jsonl");
+    expect(parsed.entries.map(entry => entry.text)).toEqual(["Future human question", "Future assistant answer"]);
+    expect(parsed.source?.warning).toContain("v5");
+    expect(parsed.source?.lossy).toBe(true);
+    expect(parsed.diagnostics).toMatchObject({ formatVersion: 5, issues: [{ code: "future-version" }] });
+    expect(sessionToDialogue(parsed)).toContain("warning:");
   });
 });
 
@@ -442,14 +456,20 @@ describe("DSH released formats and discovery", () => {
     expect(parsed.entries.map((entry) => entry.text)).toEqual(["Legacy human question", "Legacy assistant answer"]);
   });
 
-  it("preserves the official refusal of legacy descriptor v2 instead of rewriting it to v3", async () => {
+  it.each([0, 1, 2, 3, 4, 99])("keeps descriptors opaque without rewriting them under header v%s", async (version) => {
     const directory = await temporaryDirectory();
-    const path = await writeLog([header(0), { type: "subagent/descriptor", seq: 0, time: EPOCH,
-      data: { version: 2, mode: "continuable", provider: "mock", label: "synthetic old child" },
-    }], join(directory, "session.jsonl"));
+    const rows = legacyRows(false);
+    rows[0] = header(version, "descriptor-session");
+    rows.push({ type: "subagent/descriptor", seq: rows.length - 1, time: EPOCH,
+      data: { version: 2, mode: "continuable", provider: "mock", label: "synthetic old child" } });
+    rows.push({ type: "subagent/descriptor", seq: rows.length - 1, time: EPOCH, data: { version: 999, future: true } });
+    const path = await writeLog(rows, join(directory, version ? `session.v${version}.jsonl` : "session.jsonl"));
     const before = await readFile(path);
-    await expect(parseDsh(await refFromDshFile(path))).rejects.toThrow(/unsupported descriptor version 2/);
+    const parsed = await parseDsh(await refFromDshFile(path));
+    expect(parsed.entries.map(entry => entry.text)).toEqual(["Legacy human question", "Legacy assistant answer"]);
+    expect(parsed.diagnostics?.unknown).toBe(0);
     expect(await readFile(path)).toEqual(before);
+    expect(await readdir(directory)).toEqual([version ? `session.v${version}.jsonl` : "session.jsonl"]);
   });
 
   it("discovers the highest canonical generation while an explicit file still names the exact older generation", async () => {
@@ -466,11 +486,15 @@ describe("DSH released formats and discovery", () => {
     expect((await parseDsh(await refFromDshFile(oldPath))).entries[0]?.text).toBe("Legacy human question");
   });
 
-  it("refuses an unsupported highest generation instead of falling back to older data", async () => {
+  it("reads the highest future generation with diagnostics rather than stale fallback", async () => {
     const directory = await temporaryDirectory();
     await writeLog(legacyRows(false), join(directory, "session.jsonl"));
-    await writeLog([header(99)], join(directory, "session.v99.jsonl"));
-    await expect(discoverDsh(directory)).rejects.toThrow(/99|unsupported|newer|format/i);
+    const future = await writeLog([header(99)], join(directory, "session.v99.jsonl"));
+    const refs = await discoverDsh(directory);
+    expect(refs.map(ref => ref.path)).toEqual([future]);
+    const parsed = await parseDsh(refs[0]);
+    expect(parsed.entries).toEqual([]);
+    expect(parsed.source?.warning).toContain("v99");
   });
 
   it("rejects a generation filename/header mismatch and ambiguous same-generation encodings", async () => {

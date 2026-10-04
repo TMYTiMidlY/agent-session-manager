@@ -54,12 +54,14 @@ describe("DSH sources", () => {
     expect(await discoverPath(directory)).toEqual(refs);
   });
 
-  it("does not fall back to an older readable generation when the highest version is unsupported", async () => {
+  it("selects future generations without falling back to stale archives", async () => {
     const directory = await root();
     const old = await session(join(directory, "project", "a", "session.jsonl"), 0);
     await session(join(directory, "project", "a", "session.v4.jsonl"), 4);
-    await session(join(directory, "project", "a", "session.v99.jsonl"), 99);
-    await expect(discoverDsh(directory)).rejects.toThrow(/更新的存档格式 v99/);
+    const future = await session(join(directory, "project", "a", "session.v99.jsonl"), 99);
+    const refs = await discoverDsh(directory);
+    expect(refs.map(ref => ref.path)).toEqual([future]);
+    expect((await parseSession(refs[0])).source?.warning).toContain("v99");
     // An explicit file still means that precise historical artifact.
     expect((await parseSession(await refFromFile(old))).id).toBe("dsh-fixture");
   });

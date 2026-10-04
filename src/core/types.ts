@@ -83,6 +83,22 @@ export interface ParseDiagnostics {
   ignored: number;
   unknown: number;
   unknownTypes: string[];
+  /** True when unknownTypes is a bounded sample rather than an exhaustive list. */
+  unknownTypesTruncated?: boolean;
+  /** Stored generation, not a runtime migration target. */
+  formatVersion?: number;
+  /** Bounded payload-free samples of compatibility gaps or malformed records. */
+  issues?: ParseIssue[];
+}
+
+export interface ParseIssue {
+  code: string;
+  message: string;
+  type?: string;
+  /** One-based nonblank JSONL record number (header is 1). */
+  row?: number;
+  seq?: number;
+  count: number;
 }
 
 export interface SearchHit {

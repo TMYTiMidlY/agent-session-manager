@@ -62,14 +62,15 @@ describe("asmgr cli", () => {
     ).rejects.toThrow(/session not found/);
   });
 
-  /** A readable and an officially-refused DSH session under one --dsh-root; the broken id sorts first. */
-  async function dshRootWithOneBrokenSession(): Promise<string> {
+  /** Descriptor evolution must not hide this session or its readable sibling. */
+  async function dshRootWithDescriptorSession(): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "asmgr-search-resilience-"));
-    const broken = join(root, "a-broken", "session.jsonl");
-    await mkdir(dirname(broken), { recursive: true });
-    await writeFile(broken, [
-      JSON.stringify({ type: "session", version: 0, id: "00a-broken", createdAt: 1, cwd: "/synthetic", delegationDepth: 0 }),
+    const descriptor = join(root, "a-descriptor", "session.jsonl");
+    await mkdir(dirname(descriptor), { recursive: true });
+    await writeFile(descriptor, [
+      JSON.stringify({ type: "session", version: 0, id: "00a-descriptor", createdAt: 1, cwd: "/synthetic", delegationDepth: 0 }),
       JSON.stringify({ type: "subagent/descriptor", seq: 0, time: 2, data: { version: 2, mode: "continuable", provider: "mock", label: "synthetic old child" } }),
+      JSON.stringify({ type: "user/message", seq: 1, time: 3, surfaceOp: "append", data: { source: { kind: "user" }, content: [{ type: "text", text: "needleword descriptor question" }] } }),
     ].join("\n") + "\n");
     const good = join(root, "z-good", "session.v3.jsonl");
     await mkdir(dirname(good), { recursive: true });
@@ -80,26 +81,61 @@ describe("asmgr cli", () => {
     return root;
   }
 
-  it("keeps searching remaining sessions when one archive is refused", async () => {
-    const root = await dshRootWithOneBrokenSession();
+  it("searches descriptor-v2 sessions alongside ordinary sessions", async () => {
+    const root = await dshRootWithDescriptorSession();
     try {
       const { stdout, stderr } = await execFileAsync(tsx, [cli, "search", "needleword", "--agent", "dsh", "--dsh-root", root]);
       expect(stdout).toContain("session-zgood");
       expect(stdout).toContain("needleword");
-      expect(stderr).toContain("跳过无法解析的会话");
-      expect(stderr).toContain("a-broken");
-      expect(stderr).toContain("已跳过 1 个");
+      expect(stdout).toContain("00a-descriptor");
+      expect(stdout).toContain("descriptor question");
+      expect(stderr).not.toContain("跳过");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
   it("shows a DSH session by its bare uuid when the id carries the session- prefix", async () => {
-    const root = await dshRootWithOneBrokenSession();
+    const root = await dshRootWithDescriptorSession();
     try {
       const { stdout } = await execFileAsync(tsx, [cli, "show", "zgood", "--agent", "dsh", "--dsh-root", root, "--format", "dialogue"]);
       expect(stdout).toContain("session-zgood");
       expect(stdout).toContain("needleword");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads future DSH headers and descriptor payloads across search/show/html/md", async () => {
+    const root = await dshRootWithDescriptorSession();
+    try {
+      const path = join(root, "future", "session.v99.jsonl");
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, [
+        { type: "session", version: 99, id: "session-future", createdAt: 1, cwd: "/synthetic" },
+        { type: "subagent/descriptor", seq: 0, time: 2, data: { version: 999, newPayload: true } },
+        { type: "user/message", seq: 1, time: 3, surfaceOp: "append", data: { source: { kind: "user" }, content: [{ type: "text", text: "future needleword question" }] } },
+        { type: "future/required", seq: 2, time: 4, data: { text: "PRIVATE UNKNOWN PAYLOAD" } },
+        { type: "assistant/message", seq: 3, time: 5, surfaceOp: "append", data: { message: { role: "assistant", content: [{ type: "text", text: "future answer" }] } } },
+      ].map(row => JSON.stringify(row)).join("\n") + "\n");
+      const options = ["--agent", "dsh", "--dsh-root", root];
+      const search = await execFileAsync(tsx, [cli, "search", "absent-query", ...options]);
+      expect(search.stdout).toBe("");
+      expect(search.stderr).toContain("future/required");
+      expect(search.stderr).not.toContain("跳过");
+      const show = await execFileAsync(tsx, [cli, "show", "future", ...options, "--format", "json"]);
+      const parsed = JSON.parse(show.stdout);
+      expect(parsed.entries.map((entry: { text: string }) => entry.text)).toEqual(["future needleword question", "future answer"]);
+      expect(parsed.diagnostics.formatVersion).toBe(99);
+      for (const command of ["html", "md"]) {
+        const out = join(root, `report.${command}`);
+        await execFileAsync(tsx, [cli, command, "future", ...options, "--out", out]);
+        const rendered = await readFile(out, "utf8");
+        expect(rendered).toContain("future needleword question");
+        expect(rendered).toContain("future answer");
+        expect(rendered).toContain("future/required");
+        expect(rendered).not.toContain("PRIVATE UNKNOWN PAYLOAD");
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

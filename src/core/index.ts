@@ -84,6 +84,8 @@ export async function searchRefs(refs: SessionRef[], query: string, limit = 20):
       console.error(`跳过无法解析的会话 ${ref.path}：${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
+    // Search must expose partial reads even when the query finds no hits.
+    if (parsed.agent === "dsh" && parsed.source?.warning) console.error(`读取会话 ${ref.path} 的警告：${parsed.source.warning}`);
     for (const entry of parsed.entries) {
       const searchText = timelineEntrySearchText(entry);
       if (!searchText.toLowerCase().includes(needle)) continue;
