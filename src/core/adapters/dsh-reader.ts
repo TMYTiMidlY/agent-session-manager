@@ -79,8 +79,10 @@ export function readDshHeader(path: string, value: unknown, namedVersion?: numbe
   if (namedVersion !== undefined && namedVersion !== header.version) {
     throw new Error(`DSH 文件名版本 v${namedVersion} 与文件头 v${header.version} 不符`);
   }
+  // Lightweight lineage travels with the ref so discovery/metadata never needs
+  // a full transcript parse to answer "which session did this fork come from?".
   return { agent: "dsh", id: header.id, path, cwd: typeof header.cwd === "string" ? header.cwd : undefined,
-    startedAt, source: { kind: "events", path, lossy: false } };
+    startedAt, source: { kind: "events", path, lossy: false }, identity: dshIdentity(readDshHeaderMeta(value)) };
 }
 
 /**
@@ -136,6 +138,110 @@ export function eventMessage(event: DshEvent): Record<string, unknown> {
   if (Object.hasOwn(data, "message")) return record(data.message);
   // v0/v1 stored assistant content and tool results directly in data.
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Native accounting readers (upstream: packages/llm/llm/src/types.ts TokenUsage
+// @ 5badb15009ae1756c3afe0ae0cef1faafc290ccc). Buckets are DISJOINT:
+// inputTokens is uncached input only; cached input lives separately in
+// cacheReadTokens/cacheWriteTokens (billed input = sum of the three);
+// reasoningTokens is a subset of outputTokens; totalTokens is the provider's
+// exact full-call total, stored verbatim and never guessed. Missing fields
+// stay missing — they mean unknown, not zero.
+// ---------------------------------------------------------------------------
+
+/** Strict TokenUsage metric reader; an unknown layout yields no metrics. */
+export function readDshUsageMetrics(value: unknown): Record<string, number> {
+  const usage = record(value);
+  const metrics: Record<string, number> = {};
+  for (const field of ["inputTokens", "outputTokens", "totalTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const) {
+    const raw = usage[field];
+    if (raw === undefined) continue;
+    if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0) return {};
+    metrics[field] = raw;
+  }
+  return metrics;
+}
+
+/**
+ * Observe the last usage chunk embedded in one assistant stream. Packed runs
+ * (text-chunks/reasoning-chunks/tool-call-chunks) never carry usage; only raw
+ * `{type: 'chunk', chunk: {type: 'usage', usage}}` records do, and later
+ * chunks overwrite earlier observations — they are never summed.
+ */
+export function observeDshStreamUsage(stream: unknown): Record<string, number> {
+  if (!Array.isArray(stream)) return {};
+  let latest: Record<string, number> = {};
+  for (const value of stream) {
+    const entry = record(value);
+    if (entry.type !== "chunk") continue;
+    const chunk = record(entry.chunk);
+    if (chunk.type !== "usage") continue;
+    const metrics = readDshUsageMetrics(chunk.usage);
+    if (Object.keys(metrics).length) latest = metrics;
+  }
+  return latest;
+}
+
+/** The raw usage object of the last usage chunk — ledger evidence, kept verbatim. */
+export function lastStreamUsageRaw(stream: unknown): unknown {
+  if (!Array.isArray(stream)) return undefined;
+  let latest: unknown;
+  for (const value of stream) {
+    const entry = record(value);
+    if (entry.type !== "chunk") continue;
+    const chunk = record(entry.chunk);
+    if (chunk.type !== "usage") continue;
+    if (Object.keys(readDshUsageMetrics(chunk.usage)).length) latest = chunk.usage;
+  }
+  return latest;
+}
+
+/**
+ * Session-header lineage fields (upstream SessionHeader v4: parentSession?,
+ * isSeeded, origin?: 'subagent', delegationDepth, agentPreset?), read without
+ * validating the whole header. An origin value outside the upstream vocabulary
+ * is preserved verbatim instead of being coerced to "main".
+ */
+export interface DshHeaderMeta {
+  parentSession?: string;
+  isSeeded: boolean;
+  origin?: string;
+  delegationDepth?: number;
+  agentPreset?: string;
+}
+
+export function readDshHeaderMeta(value: unknown): DshHeaderMeta {
+  const header = record(value);
+  return {
+    ...(typeof header.parentSession === "string" && header.parentSession ? { parentSession: header.parentSession } : {}),
+    isSeeded: header.isSeeded === true,
+    // Upstream only defines 'subagent'; any other string stays raw evidence.
+    ...(typeof header.origin === "string" && header.origin ? { origin: header.origin } : {}),
+    ...(typeof header.delegationDepth === "number" && Number.isSafeInteger(header.delegationDepth) && header.delegationDepth >= 0
+      ? { delegationDepth: header.delegationDepth } : {}),
+    ...(typeof header.agentPreset === "string" && header.agentPreset ? { agentPreset: header.agentPreset } : {}),
+  };
+}
+
+/**
+ * Session-graph identity from header lineage. Rules (upstream-grounded):
+ * - origin === 'subagent' → subagent; origin absent → main (the upstream type
+ *   defines no other value); an unrecognized origin stays unknown with the raw
+ *   value preserved in identity.raw — never guessed into main.
+ * - parentSession + isSeeded → forkOf (inherited parent history); an unseeded
+ *   parentSession is ownership (subagent delegation), not fork inheritance.
+ */
+export function dshIdentity(meta: DshHeaderMeta): import("../types.js").SessionIdentity {
+  const role = meta.origin === "subagent" ? "subagent" : meta.origin === undefined ? "main" : "unknown";
+  return {
+    role,
+    ...(meta.parentSession !== undefined ? { parentSession: meta.parentSession } : {}),
+    ...(meta.parentSession !== undefined && meta.isSeeded ? { forkOf: meta.parentSession } : {}),
+    ...(meta.agentPreset !== undefined ? { agentPreset: meta.agentPreset } : {}),
+    ...(meta.delegationDepth !== undefined ? { delegationDepth: meta.delegationDepth } : {}),
+    ...(role === "unknown" && meta.origin !== undefined ? { raw: { origin: meta.origin } } : {}),
+  };
 }
 
 /** Names whose payloads have no direct transcript carrier. Payload versions are deliberately opaque. */

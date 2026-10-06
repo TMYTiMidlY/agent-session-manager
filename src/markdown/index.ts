@@ -78,6 +78,7 @@ function agentDisplay(agent: string): string {
   if (agent === "codex") return "🌀 Codex CLI Session";
   if (agent === "chatgpt") return "🌀 ChatGPT 分享会话";
   if (agent === "dsh") return "🌀 DeepSeek Harness Session";
+  if (agent === "cursor") return "🌀 Cursor Agent Session";
   return `🌀 ${agent} Session`;
 }
 
@@ -220,6 +221,7 @@ function assistantLabel(agent: AgentKind): string {
   if (agent === "claude") return "Claude";
   if (agent === "codex") return "Codex";
   if (agent === "dsh") return "DeepSeek Harness";
+  if (agent === "cursor") return "Cursor Agent";
   return "ChatGPT";
 }
 

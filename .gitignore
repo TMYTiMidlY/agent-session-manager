@@ -16,3 +16,6 @@ src/html/assets.generated.ts
 # 本地 AI 智能体指令（提交规范等），按需自行维护，不进版本库。
 AGENTS.md
 .scratch/
+
+# Complete upstream checkouts used only for local format research.
+rorepos/

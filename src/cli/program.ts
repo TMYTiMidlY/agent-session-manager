@@ -9,6 +9,8 @@ import { buildHtmlCommand } from "./commands/html.js";
 import { buildMdCommand } from "./commands/md.js";
 import { buildBackupCommand } from "./commands/backup/index.js";
 import { buildImportCommand } from "./commands/import.js";
+import { buildTreeCommand } from "./commands/tree.js";
+import { buildQuotaCommand } from "./commands/quota.js";
 
 /** Assemble the root `asmgr` program with every command attached. Exported so tests can drive it. */
 export function buildProgram(): Command {
@@ -25,5 +27,7 @@ export function buildProgram(): Command {
   program.addCommand(buildMdCommand());
   program.addCommand(buildImportCommand());
   program.addCommand(buildBackupCommand());
+  program.addCommand(buildTreeCommand());
+  program.addCommand(buildQuotaCommand());
   return program;
 }

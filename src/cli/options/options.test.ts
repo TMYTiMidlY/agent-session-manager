@@ -7,8 +7,15 @@ import { agentOverrideFromOptions, parseAgents, rootsFromOptions } from "./resol
 describe("read command options", () => {
   it.each(["list", "search", "show", "html", "md"])("exposes DSH selection and a root override on %s", (name) => {
     const command = buildProgram().commands.find((candidate) => candidate.name() === name);
-    expect(command?.helpInformation()).toContain("copilot|claude|codex|chatgpt|dsh|all");
+    expect(command?.options.find(option => option.long === "--agent")?.description).toContain("copilot|claude|codex|chatgpt|dsh|cursor (cursor-agent)|all");
+    expect(command?.helpInformation()).toContain("--cursor-root <path>");
     expect(command?.helpInformation()).toContain("--dsh-root <path>");
+  });
+
+  it("accepts Cursor Agent aliases and its independent root", () => {
+    expect(parseAgents("cursor-agent")).toEqual(["cursor"]);
+    expect(parseAgents("all")).toContain("cursor");
+    expect(rootsFromOptions({ cursorRoot: "/cursor" }).cursor).toBe("/cursor");
   });
 
   it("parses DSH options without opening a session", () => {

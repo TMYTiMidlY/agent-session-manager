@@ -5,6 +5,7 @@ import { basename } from "node:path";
 import type { AgentKind, AgentRoots, ParsedSession, SearchHit, SessionRef, SessionSource, TimelineEntry } from "./types.js";
 import { discoverClaude } from "./adapters/claude.js";
 import { discoverCodex } from "./adapters/codex.js";
+import { discoverCursor, refFromCursorFile } from "./adapters/cursor.js";
 import { discoverCopilot } from "./adapters/copilot.js";
 import { discoverDsh, discoverDshRef, dshLogVersion, isDshHeader, refFromDshFile, selectDshGenerations } from "./adapters/dsh.js";
 import {
@@ -20,6 +21,8 @@ import { searchRefs, type SearchOptions } from "./search.js";
 import { enrichSessionRefs, sortSessionRefs } from "./session-metadata.js";
 import { mapConcurrent } from "./concurrency.js";
 export { parseSession, searchRefs };
+export { computeStats, createDocumentBuilder, documentFromParsed, projectEntries, DSH_FORMAT_BASIS } from "./normalized.js";
+export { validateTimeZone, zonedTime, hourBucket } from "./timezone.js";
 export type { SearchOptions, SearchDiagnostic } from "./search.js";
 export { sortSessionRefs, filterSessionCwd } from "./session-metadata.js";
 import { expandHome, fileStem, parentName, pathExists, readJson, readJsonl, walkFiles } from "./fs.js";
@@ -38,7 +41,7 @@ export {
   type ChatGptShareSnapshot,
 } from "./adapters/chatgpt.js";
 
-export const AGENTS: AgentKind[] = ["copilot", "claude", "codex", "chatgpt", "dsh"];
+export const AGENTS: AgentKind[] = ["copilot", "claude", "codex", "chatgpt", "dsh", "cursor"];
 
 export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: AgentRoots = {}): Promise<SessionRef[]> {
   const found: SessionRef[] = [];
@@ -47,6 +50,7 @@ export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: Agen
   if (agents.includes("codex")) found.push(...(await discoverCodex(roots.codex)));
   if (agents.includes("chatgpt")) found.push(...(await discoverChatGpt(roots.chatgpt)));
   if (agents.includes("dsh")) found.push(...(await discoverDsh(roots.dsh)));
+  if (agents.includes("cursor")) found.push(...(await discoverCursor(roots.cursor)));
   return sortSessionRefs(await enrichSessionRefs(found));
 }
 
@@ -92,6 +96,7 @@ export async function summarizeSession(ref: SessionRef): Promise<SessionSummary>
       repository: parsed.repository,
       branch: parsed.branch,
       source: parsed.source,
+      identity: parsed.identity,
     },
     project: deriveProject(parsed.cwd),
     startedAt: parsed.startedAt,
@@ -168,6 +173,12 @@ function deriveId(path: string, agent: AgentKind, rows: unknown[]): string {
 /** Build a SessionRef from an explicit JSONL or ChatGPT snapshot file. */
 export async function refFromFile(path: string, agentOverride?: AgentKind): Promise<SessionRef> {
   const abs = expandHome(path);
+  if (agentOverride === "cursor" || abs.endsWith(".db")) {
+    if (agentOverride && agentOverride !== "cursor") throw new Error(`Cursor SQLite source does not match --agent ${agentOverride}: ${path}`);
+    const cursorRef = await refFromCursorFile(abs);
+    if (!cursorRef) throw new Error(`unsupported Cursor Agent SQLite source: ${path}`);
+    return cursorRef;
+  }
   if (agentOverride === "dsh" || abs.endsWith(".jsonl.zstd")) {
     if (agentOverride && agentOverride !== "dsh") throw new Error(`DSH 压缩日志与 --agent ${agentOverride} 不匹配：${path}`);
     return refFromDshFile(abs);
@@ -235,7 +246,7 @@ export async function discoverPath(path: string, agentOverride?: AgentKind): Pro
   if (info.isFile()) return enrichSessionRefs([await refFromFile(abs, agentOverride)]);
   const files = selectDshGenerations(await walkFiles(
     abs,
-    (candidate) => candidate.endsWith(".jsonl") || candidate.endsWith(".chatgpt-share.json")
+    (candidate) => basename(candidate) === "store.db" || candidate.endsWith(".jsonl") || candidate.endsWith(".chatgpt-share.json")
       || (candidate.endsWith(".jsonl.zstd") && dshLogVersion(candidate) !== undefined),
   ));
   const refs = await mapConcurrent(files, 8, file => dshLogVersion(file) !== undefined && (!agentOverride || agentOverride === "dsh")

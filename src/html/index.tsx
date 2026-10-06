@@ -862,6 +862,7 @@ function assistantLabel(agent: AgentKind): string {
   if (agent === "claude") return "Claude";
   if (agent === "codex") return "Codex";
   if (agent === "dsh") return "DeepSeek Harness";
+  if (agent === "cursor") return "Cursor Agent";
   return "ChatGPT";
 }
 

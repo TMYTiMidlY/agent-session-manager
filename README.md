@@ -5,11 +5,11 @@
 ![pnpm](https://img.shields.io/badge/pnpm-10.x-f69220?logo=pnpm&logoColor=white)
 ![Vitest](https://img.shields.io/badge/tests-Vitest-6E9F18?logo=vitest&logoColor=white)
 
-**把编码 agent 的 CLI 会话与公开 ChatGPT 分享导出成 Markdown 或单文件 HTML。** `asmgr`（Agent Session ManaGeR）读取 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI、DeepSeek Harness（DSH）写在本地的会话历史，也可捕获公开 ChatGPT `/share/` 页面，再把选定的会话导出成自包含报告；来源无法完整保留的内容会显式标记。它是**一个**无 scope 的公开 npm 包，命令也叫 `asmgr`；HTML 与 Markdown 是它的导出能力，而非独立发布的产品。
+**把编码 agent 的 CLI 会话与公开 ChatGPT 分享导出成 Markdown 或单文件 HTML。** `asmgr`（Agent Session ManaGeR）读取 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI、DeepSeek Harness（DSH）及 Cursor Agent 写在本地的会话历史，也可捕获公开 ChatGPT `/share/` 页面，再把选定的会话导出成自包含报告；来源无法完整保留的内容会显式标记。它是**一个**无 scope 的公开 npm 包，命令也叫 `asmgr`；HTML 与 Markdown 是它的导出能力，而非独立发布的产品。
 
 HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主题、sticky header、类型筛选 pill、侧栏目录、上一条/下一条用户消息跳转、搜索），差异见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md)。Markdown 产物遵循 Copilot CLI `/share file` 的结构与约定（`### 💬/👤/🔧/✅` 标题、`<sub>⏱️</sub>` 耗时戳、`<details>` 折叠、diff 围栏、`[!NOTE]` 头块）。
 
-它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`、`.dsh`。传本地 session id 或 `--file` 时，`list` / `search` / `show` / `html` / `md` 都严格本地。只有显式导入或直接读取 ChatGPT 分享 URL，以及按配置访问 restic 仓库的 `backup` 命令会联网。
+它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`、`.dsh`、`.cursor`。传本地 session id 或 `--file` 时，`list` / `search` / `show` / `html` / `md` 都严格本地。只有显式导入或直接读取 ChatGPT 分享 URL，以及按配置访问 restic 仓库的 `backup` 命令会联网。
 
 > **归档 ≠ 恢复。** 导出的报告是有损、只读、给人看的产物，**不能**反推回可 `--resume` 的原生会话。把会话忠实恢复到"另一台机器能续聊"是一条**规划中**的独立能力（来源 = 备份快照 ∪ 另一台机器），与只读归档严格分层——理念见 [ADR 0001](docs/adr/0001-scope-archive-and-restore.md)。
 
@@ -40,11 +40,21 @@ HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主�
 - **Claude Code**：读取 `~/.claude/projects/**/*.jsonl`
 - **Codex CLI**：读取 `~/.codex/sessions/**/*.jsonl`
 - **DeepSeek Harness（DSH）**：读取 `${DSH_HOME:-~/.dsh}/sessions/<project>/<session>/session[.vN].jsonl[.zstd]`；用 `--dsh-root <path>` 覆盖会话根目录。目录发现选择每个会话的最高版本文件；`--file` 指向单个文件时读取指定版本。
+- **Cursor Agent**：只读 `~/.cursor/chats/<workspace-hash>/<session-id>/store.db` 及相邻 metadata；`--agent cursor`（别名 `cursor-agent`）、`--cursor-root <path>`，也支持 `--file /path/to/store.db`。只读取当前 root 的可达消息图，不混入孤立旧分支。该闭源存储没有稳定公开协议；未验证的 protobuf 数字、缺失 token 用量和逐消息时间戳不做推断，局部缺失会给出诊断。
 - **ChatGPT 公共分享**：`asmgr import <url>` 从 `/share/<id>` 页面的 React Router 水合数据读取
   `linear_conversation`。默认托管目录中的快照会自动进入 `list/search/show/html/md`；
   也可把 URL 直接传给 `show/html/md`，不落盘使用。
 
 每个读命令（`list` / `search` / `show` / `html` / `md`）都接受 `--file <path>`（别名 `--events <path>`），读一个显式的 `*.jsonl` / DSH `*.jsonl.zstd` / `*.chatgpt-share.json` 文件——或一个会被遍历出这些文件的目录——而不是 live agent 主目录。每个文件的 agent 格式自动探测（用 `--agent` 覆盖）。未知 JSON 会明确报错，不再静默显示成空会话。
+
+### 统一中间格式与用量口径
+
+所有来源经同一读取入口输出版本化 `SessionDocument`，`show -f json` 中的 `document` 是统一格式，`entries` 是由它派生的兼容显示视图。采用固定 DSH format 4 的事件信封、结构化内容块和计量语义，参考提交 `5badb15009ae1756c3afe0ae0cef1faafc290ccc`，并扩展来源证据、线程关系、上下文与额度观测。不会依赖安装中的 DSH 私有 codec，也不会随 DSH 升级自动改变本项目中间格式。设计与边界见 [ADR 0004](docs/adr/0004-unified-session-format.md)。**这不是可供 DSH resume 的日志，也不保证未知来源字段已完整解释。**
+
+- `inputTokens` = **未缓存输入**；`cacheReadTokens` / `cacheWriteTokens` 为独立桶；`reasoningTokens` 是输出的子集。
+- 原始来源计数与转换依据保留；Codex 包含缓存的 `input_tokens` 不直接改名为未缓存输入。无法确认语义的值仅保留原始记录。
+- 精确响应增量按 `response_id` 去重；旧日志只能使用最新累计快照时明确标记口径。上下文观测、父会话继承和账号额度不累计为当前线程用量。
+- 缺值保持未知，JSON 省略 / TSV 空列，不假装成零；不把不完整小计包装成完整总量。正文事件时间是时间点，文件名本地时间和文件 mtime 不是可替代的计量时间。
 
 ### DSH 读取与主干
 
@@ -177,6 +187,26 @@ asmgr list --by agent       # 按 copilot / claude / codex / chatgpt 分组
 
 分组模式每组打印一个 `# <组> (<数量>)` 头（组间排序，组内按所选排序），随后是 `组`、`agent`、`session-id`、`最后事件时间`、`条目数` 的 tab 分隔行。**分组需要完整解析以统计条目**，比默认 metadata 列表重；解析并发也有上限。
 
+### 统计、线程关系与账号额度
+
+```bash
+asmgr list -a codex --stats --sort peak_ctx --limit 20
+asmgr list -a codex --stats -f json | jq '.[].stats'
+asmgr list -a codex --role guardian
+asmgr tree <session-id> -a codex --json
+asmgr quota -a codex --timezone Asia/Shanghai -f json
+asmgr show <session-id> -a codex --no-guardian
+asmgr search "关键词" -a codex --include-guardian
+```
+
+`list --stats` 在原六列之后追加 `peak_ctx`、`ctx_util%`、`in`、`cached`、`out`、`cache%`、`compact`；JSON 使用 `stats.peakContextTokens/peakContextUtilization/billedInputTokens/totals.cacheReadTokens/totals.outputTokens/cacheReadRatio/compactions`。`-f json` 与 `--json` 等价。`peak_ctx` 是 Codex **最后请求的原始 input_tokens 最大观测值**，不是模型窗口上限或累计 total；`ctx_util%` 配对使用该最大样本自己的窗口，缺窗口则未知。`in` 是确切的总 prompt 输入（包括已核实缓存），`cached` 是缓存读取，`cache% = cached/in`。统计排序先计算所选全集再取 limit；默认列表仍只读 metadata。统计排序包括 `peak_ctx/ctx_util/input/cached/output/cache/compact`，未知值排末尾；统计与 `--by` 分组不能组合。`--verbose` 显示坏行、未知记录及计量缺口。show 的 `--role` 同时过滤 JSON 的 entries 与 document 消息事件；此 reduced view 以 `document.view` 标记，并省略可能混合角色的原生 opaque 内容，避免通过第二载体暴露被排除的消息。
+
+列表的 `--role main|subagent|guardian|unknown` 筛**会话身份**，与 show/search 的消息角色不同。`tree` 区分父子与 fork，标明缺失父节点、重复 ID 和循环；时间来自记录，不用 mtime 冒充活动或运行状态。并发数只是记录区间的半开重叠，不代表此刻仍运行。默认最多显示 128 层，可用 `--max-depth 0–256` 调整，截断会明确标记。Codex `show` 默认附上 guardian 子线程并保留其来源；`--no-guardian` 关闭。search 默认跨库排除 guardian 噪音，`--include-guardian` 可恢复；显式 `--session` 或单文件选择会尊重该选择，并先做完整的 ID 歧义检查。
+
+`quota` 从统一文档读取 Codex primary/secondary 观测，合并所选会话为按小时的 min/max/last 轨迹，保留原始数值精度、余额字符串和来源。默认 UTC，`--timezone` 接受 IANA 时区；重复的 DST 小时按 UTC offset 区分。水位下降/重置时间变化只标记**观测到的证据**，不宣称全局重置。仅请求时刻有采样，间隙未知；`limit_id` 是额度桶，**不是账号 ID**，缺账号标识时明确提示可能混合不同账号。账号额度不按 cwd 百分比分摊。
+
+DSH 的 raw TokenUsage 缺省缓存字段在 harness UI fold 中按 0 折算；本中间层保留缺失为未知，并在每条转换说明中标明此区别，不把显示默认值伪装成原始计量数据。Cursor 未验证的字段也不推断成 token 用量，读取方式与限制见 [Cursor 格式说明](docs/cursor-format.md)。本机全量读取、成品验证、独立审阅与残余边界见 [验证记录](docs/validation-unified-sessions.md)。
+
 ### `asmgr current`
 
 DSH 已提供运行时 `DSH_SESSION_ID` 时，`asmgr current` 直接打印该 ID；`asmgr current --json` 查询该会话的本地 metadata（支持 `--dsh-root`）。变量未设置会明确报错，**不会把最新 mtime 冒充当前会话**。
@@ -214,7 +244,7 @@ asmgr search "database migration" --session <session-id>   # 只在一个会话�
 
 search 默认缓存**规范转录的可搜索文本索引**（包括工具文本与诊断，不是原始日志或完整 timeline），避免每次全库查询都重新解压与重建 timeline。热查询先用已校验的 UTF16 三字符 Bloom 摘要保守排除不含关键词的会话（允许误报，不漏报）；不足 3 个 UTF16 单元的短关键词绕过 Bloom，再用已校验的文本索引字节预筛。可能命中时回读规范源，确保工具详情、摘录和原 index 不改变。缓存由源路径、agent/id 与文件 stat（mtime、size、ctime、inode）校验；源变化自动失效，读取过程中变化的源不写缓存。一个会话只占一个可替换槽位，不保留每次修改的旧版本。缓存格式/解析语义有独立版本；坏缓存、只读缓存目录或写入失败会回退原始解析，不影响命中。
 
-路径优先级：`--cache-dir <path>` → `ASMGR_CACHE_HOME` → `${XDG_CACHE_HOME:-~/.cache}/asmgr`；实际文件在 `search/search-text-1/`。每个逻辑槽位包含 gzip 文本索引与小型 `.meta.json` 摘要；目录为 `0700`，文件为 `0600`。**gzip 不是加密**，缓存可能含私密对话和工具输出，应和会话历史一样保护，并从云同步/公开备份中排除。单个快照超过 128 MiB 时不缓存。`--no-cache` 完全绕开缓存的读写，也适合完整原始读取验收；缓存可删除并随下一次查询重建，但删除缓存不等于删除原始会话。Copilot 实时 SQLite/db-turns 不使用持久负索引：WAL 里的新消息可能不改变主 DB 的 stat，不能据此跳过检索。
+路径优先级：`--cache-dir <path>` → `ASMGR_CACHE_HOME` → `${XDG_CACHE_HOME:-~/.cache}/asmgr`；实际文件在 `search/search-text-2/`。每个逻辑槽位包含 gzip 文本索引与小型 `.meta.json` 摘要；目录为 `0700`，文件为 `0600`。**gzip 不是加密**，缓存可能含私密对话和工具输出，应和会话历史一样保护，并从云同步/公开备份中排除。单个快照超过 128 MiB 时不缓存。`--no-cache` 完全绕开缓存的读写，也适合完整原始读取验收；缓存可删除并随下一次查询重建，但删除缓存不等于删除原始会话。Copilot 实时 SQLite/db-turns 不使用持久负索引：WAL 里的新消息可能不改变主 DB 的 stat，不能据此跳过检索。
 
 冷首次全库查询仍须处理所有候选历史（不足 limit 时无法免除），后续关键词共享缓存；没有后台索引服务，不触碰原生历史目录。库 API 的 `searchRefs` 不默认写缓存，只有调用方显式传 `cacheDir` 才使用。
 

@@ -4,12 +4,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gzip, gunzip } from "node:zlib";
 import { parseSession } from "./parse.js";
+import { sessionReference } from "./session-metadata.js";
 import { timelineEntrySearchText } from "./text.js";
 import { BLOOM_BYTES, bloomMayContain, buildSearchBloom } from "./search-bloom.js";
 import type { ParsedSession, ParseDiagnostics, SessionRef } from "./types.js";
 
 // Bump when transcript/search semantics change, not just the on-disk schema.
-export const SEARCH_CACHE_VERSION = "search-text-1";
+export const SEARCH_CACHE_VERSION = "search-text-2";
 const compress = promisify(gzip);
 const decompress = promisify(gunzip);
 const MAX_BYTES = 128 * 1024 * 1024;
@@ -19,7 +20,8 @@ async function fingerprint(ref: SessionRef): Promise<string | undefined> {
   // A live SQLite WAL can change without touching the main DB's stat. Do not
   // persist negative indexes for db-turns unless snapshot-aware invalidation exists.
   if (/^https?:\/\//i.test(ref.path) || ref.source?.kind === "db-turns"
-    || (ref.agent === "copilot" && basename(ref.path) === "session-store.db")) return undefined;
+    || ref.agent === "cursor" || ref.source?.kind === "cursor-store"
+    || basename(ref.path).endsWith(".db")) return undefined;
   try {
     const info = await stat(ref.path, { bigint: true });
     return [SEARCH_CACHE_VERSION, ref.agent, ref.id, resolve(ref.path), info.dev, info.ino, info.size, info.mtimeNs ?? info.mtimeMs, info.ctimeNs ?? info.ctimeMs].join("\0");
@@ -164,7 +166,8 @@ export async function readSearchSession(ref: SessionRef, query: string, cacheRoo
   if (await fingerprint(ref) !== before) return { parsed, lowerTexts };
   try {
     const body = JSON.stringify(lowerTexts);
-    const { entries: _entries, diagnostics, ...metadata } = parsed;
+    const diagnostics = parsed.diagnostics;
+    const metadata = sessionReference(parsed);
     const header = withBloom({ version: SEARCH_CACHE_VERSION, fingerprint: before, metadata, diagnostics, bodyHash: hash(body) }, lowerTexts);
     const text = JSON.stringify(header) + "\n" + body;
     if (Buffer.byteLength(text) > MAX_BYTES) return { parsed, lowerTexts };

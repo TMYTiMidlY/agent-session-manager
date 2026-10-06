@@ -1,9 +1,10 @@
 import { basename, dirname, join } from "node:path";
-import type { ParsedSession, SessionRef, TimelineEntry } from "../types.js";
+import type { ParsedSession, SessionRef, TimelineEntry, UsageRecord } from "../types.js";
 import { expandHome, iterateJsonl, readJsonl, walkFiles } from "../fs.js";
 import { mapConcurrent } from "../concurrency.js";
 import { sessionMetadata } from "../session-metadata.js";
-import { DshDiagnostics, DSH_LOG_ONLY_TYPES, eventMessage, isoTime, readDshEvent, readDshHeader, record, type DshEvent } from "./dsh-reader.js";
+import { documentFromParsed } from "../normalized.js";
+import { DshDiagnostics, DSH_LOG_ONLY_TYPES, dshIdentity, eventMessage, isoTime, lastStreamUsageRaw, observeDshStreamUsage, readDshEvent, readDshHeader, readDshHeaderMeta, readDshUsageMetrics, record, type DshEvent } from "./dsh-reader.js";
 
 // A read-only transcript is not a resumable runtime state. Decode stable
 // envelopes and consumed message fields, not every plugin's private schema.
@@ -73,6 +74,7 @@ export async function parseDsh(ref: SessionRef): Promise<ParsedSession> {
     if (first.done) throw new Error("空会话文件");
     const source = headerRef(ref.path, first.value);
     const diagnostics = new DshDiagnostics(record(first.value).version as number);
+    const headerMeta = readDshHeaderMeta(first.value);
     async function* events(): AsyncGenerator<DshEvent> {
       let row = 1;
       for await (const value of rows) {
@@ -80,7 +82,7 @@ export async function parseDsh(ref: SessionRef): Promise<ParsedSession> {
         if (event) yield event;
       }
     }
-    return await projectDsh(source, events(), diagnostics);
+    return await projectDsh(source, events(), diagnostics, headerMeta);
   } catch (error) {
     throw new Error(`无法解析 DSH 会话 ${ref.path}：${errorMessage(error)}`, { cause: error });
   } finally {
@@ -103,8 +105,93 @@ interface PendingTool {
 }
 
 /** Only official transcript carriers are projected; opaque plugin events/meta are never stringified. */
-async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, report: DshDiagnostics): Promise<ParsedSession> {
+async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, report: DshDiagnostics,
+  headerMeta: ReturnType<typeof readDshHeaderMeta>): Promise<ParsedSession> {
+  const identity = dshIdentity(headerMeta);
   const entries: TimelineEntry[] = [];
+  const usageLedger: UsageRecord[] = [];
+  // Row (stable 1-based nonblank JSONL line number) of each ledger record:
+  // the fork seed cut is positional, so ordering must survive records that
+  // lack seq (legacy/damaged envelopes still get a row from the reader).
+  const ledgerRow: number[] = [];
+  let seedCutRow: number | undefined;
+  const conversionNote = (): { rule: string; sourceFields: string[]; reference: string } => ({
+    rule: "DSH TokenUsage 原样映射：inputTokens=未缓存输入，cacheRead/Write 独立桶，reasoning⊂output，totalTokens 仅原样保留；"
+      + "缺 cache 字段保持 undefined（unknown），harness token-meter 折算时按 0 处理——两种口径差异在此声明，不改写来源",
+    sourceFields: ["usage.inputTokens", "usage.cacheReadTokens", "usage.cacheWriteTokens", "usage.outputTokens", "usage.reasoningTokens", "usage.totalTokens"],
+    reference: "rorepos/deepseek-harness @5badb15 packages/llm/token-meter/src/usage-projection.ts",
+  });
+  const pushUsage = (metrics: Record<string, number>, settlement: "committed" | "interrupted" | "attempt" | "stream-final",
+    raw: DshEvent, identity: { turn?: number; step?: number; messageId?: string; provider?: string; model?: string },
+    metering: string, rawUsage?: unknown): UsageRecord => {
+    const usage: UsageRecord = {
+      id: `u${usageLedger.length}`,
+      timestamp: isoTime(raw.time),
+      ...(identity.turn !== undefined || identity.step !== undefined
+        ? { scope: { ...(identity.turn !== undefined ? { turn: identity.turn } : {}), ...(identity.step !== undefined ? { step: identity.step } : {}) } }
+        : {}),
+      cumulative: false,
+      metrics,
+      ...(identity.model !== undefined ? { model: identity.model } : {}),
+      ...(identity.provider !== undefined || identity.model !== undefined
+        ? { context: { ...(identity.provider !== undefined ? { provider: identity.provider } : {}), ...(identity.model !== undefined ? { model: identity.model } : {}) } }
+        : {}),
+      ...(identity.messageId !== undefined ? { responseId: identity.messageId } : {}),
+      ...(rawUsage !== undefined ? { raw: { usage: rawUsage } } : {}),
+      conversion: conversionNote(),
+      provenance: {
+        agent: "dsh",
+        rawType: raw.type,
+        ...(raw.seq !== undefined ? { seq: raw.seq } : {}),
+        row: raw.row,
+        ...(raw.time !== undefined ? { time: raw.time } : {}),
+        metering: { source: metering, ...(settlement !== "committed" ? { note: settlementNote(settlement) } : {}) },
+      },
+    };
+    usageLedger.push(usage);
+    ledgerRow.push(raw.row);
+    return usage;
+  };
+  // ---------------------------------------------------------------------------
+  // Settlement meter mirroring the harness token-meter fold (usage-projection
+  // @5badb15): every assistant/message and assistant/attempt settlement
+  // contributes its usage sample to the same (turn,step) replacement slot — a
+  // later settlement REPLACES the earlier sample's contribution (never adds),
+  // and llm/retry-started closes the slot so the retried attempt accumulates.
+  // Replaced observations stay in the ledger with counted=false, raw intact.
+  // ---------------------------------------------------------------------------
+  interface MeterSlot { turn: number; step: number; record: UsageRecord }
+  let meterSlot: MeterSlot | undefined;
+  const sameMetrics = (a: UsageRecord["metrics"], b: UsageRecord["metrics"]): boolean => {
+    const left = a as Record<string, number | undefined>;
+    const right = b as Record<string, number | undefined>;
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    return [...keys].every((key) => left[key] === right[key]);
+  };
+  const settleUsage = (metrics: Record<string, number>, settlement: "committed" | "interrupted" | "attempt" | "stream-final",
+    raw: DshEvent, identity: Parameters<typeof pushUsage>[3], metering: string, rawUsage?: unknown): UsageRecord => {
+    const record = pushUsage(metrics, settlement, raw, identity, metering, rawUsage);
+    if (identity.turn === undefined || identity.step === undefined) {
+      // Without coordinates the upstream fold could not match a slot either;
+      // the observation stands on its own and never replaces anything.
+      record.provenance!.metering!.note = "事件缺 turn/step 坐标，不参与 (turn,step) 替换槽";
+      return record;
+    }
+    const slot = meterSlot;
+    if (slot && slot.turn === identity.turn && slot.step === identity.step) {
+      if (sameMetrics(slot.record.metrics, record.metrics)) {
+        // token-meter no-op: an identical re-observation leaves the fold unchanged.
+        record.counted = false;
+        record.provenance!.metering!.note = "同 (turn,step) 等值重复观测（token-meter no-op），不计入";
+        return record;
+      }
+      slot.record.counted = false;
+      slot.record.provenance!.metering!.note = "被同 (turn,step) 后续结算替换（token-meter last-wins）；保留原始观测，不计入";
+      record.provenance!.metering!.note = settlementNote(settlement) + "；替换同槽先前观测（token-meter addReplacing）";
+    }
+    meterSlot = { turn: identity.turn, step: identity.step, record };
+    return record;
+  };
   const calls = new Map<string, PendingTool[]>();
   const callsBySeq = new Map<number, PendingTool[]>();
   const callsById = new Map<string, { seq: number; pending: PendingTool }[]>();
@@ -123,6 +210,22 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
     return value;
   };
   const callKey = (id: string) => `${turn}:${step}:${id}`;
+
+  function settlementNote(settlement: "committed" | "interrupted" | "attempt" | "stream-final"): string {
+    if (settlement === "attempt") return "未成功尝试的流内 usage（非成功正文计量）";
+    if (settlement === "interrupted") return "中断后提交的前缀";
+    if (settlement === "stream-final") return "assistant/message 缺 data.usage，取流内最后 usage 采样";
+    return "";
+  }
+
+  /** Effective (turn,step) coordinates for a settlement event, matching the message-scope rules. */
+  function eventScope(data: Record<string, unknown>, raw: DshEvent): { turn?: number; step?: number } {
+    const valid = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value);
+    return {
+      turn: valid(data.turn) ? data.turn : turn === -raw.row ? undefined : turn,
+      step: valid(data.step) ? data.step : step === -raw.row ? undefined : step,
+    };
+  }
 
   function startTool(id: string, name: string, args: unknown, timestamp: string | undefined, rawType: string): PendingTool {
     const entry = push({ role: "tool", kind: "tool", title: name, text: "", timestamp, rawType,
@@ -260,7 +363,61 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
       if (id) summaries.set(id, visibleText(data.summary));
       else report.add("invalid-compaction", "压缩摘要缺少可匹配的 compactionId", raw);
     } else if (raw.type === "compaction/end" || raw.type === "session/end-seed") {
+      // A tagged marker is the fork-inherited seed cut; the last one wins.
+      // The cut anchors on the marker's ROW (a stable nonblank JSONL line
+      // number assigned by the reader), so a marker that itself lacks seq
+      // still defines the cut, and seq-less usage records remain orderable
+      // against it — a missing seq stays a diagnostic (invalid-envelope),
+      // never a reason to leak parent-lineage usage into the child's totals.
+      if (raw.type === "session/end-seed" && data.inherited === true) {
+        seedCutRow = seedCutRow === undefined ? raw.row : Math.max(seedCutRow, raw.row);
+      }
       activeCompaction = undefined;
+    } else if (raw.type === "llm/retry-started") {
+      // token-meter: a retry whose (turn,step) matches the open replacement
+      // slot closes it, so the retried attempt's settlement ACCUMULATES
+      // instead of replacing the failed attempt's contribution.
+      const scope = eventScope(data, raw);
+      if (meterSlot && scope.turn === meterSlot.turn && scope.step === meterSlot.step) {
+        meterSlot = undefined;
+      }
+      diagnostics.ignored++;
+      continue;
+    } else if (raw.type === "assistant/attempt") {
+      // An unsettled attempt never becomes successful body text. Its last
+      // observed usage chunk settles through the same (turn,step) slot as the
+      // committed message — distinguishable from, never double-summed with,
+      // the final settlement (token-meter addReplacing semantics).
+      const metrics = observeDshStreamUsage(data.stream);
+      if (Object.keys(metrics).length) {
+        const scope = eventScope(data, raw);
+        settleUsage(metrics, "attempt", raw, scope,
+          "DSH assistant/attempt 流内最后观测到的 usage（未成功尝试，非成功正文计量）", lastStreamUsageRaw(data.stream));
+      }
+      diagnostics.ignored++;
+      continue;
+    } else if (raw.type === "request/context") {
+      // Route metadata sample: context-window facts only, never token metrics.
+      const provider = typeof data.provider === "string" ? data.provider : undefined;
+      const model = typeof data.model === "string" ? data.model : undefined;
+      const contextWindow = typeof data.contextWindow === "number" && Number.isSafeInteger(data.contextWindow) && data.contextWindow >= 0
+        ? data.contextWindow : undefined;
+      if (provider !== undefined || model !== undefined || contextWindow !== undefined) {
+        usageLedger.push({
+          id: `u${usageLedger.length}`,
+          timestamp: isoTime(raw.time),
+          cumulative: false,
+          metrics: {},
+          context: { ...(provider !== undefined ? { provider } : {}), ...(model !== undefined ? { model } : {}),
+            ...(contextWindow !== undefined ? { contextWindow } : {}) },
+          provenance: { agent: "dsh", rawType: raw.type, ...(raw.seq !== undefined ? { seq: raw.seq } : {}),
+            row: raw.row, ...(raw.time !== undefined ? { time: raw.time } : {}),
+            metering: { source: "DSH request/context 路由元数据（无 token 计量）" } },
+        });
+        ledgerRow.push(raw.row);
+      }
+      diagnostics.ignored++;
+      continue;
     } else if (raw.type === "user/message" || raw.type === "assistant/message" || raw.type === "tool/result") {
       const message = eventMessage(raw);
       const source = record(message.source);
@@ -291,13 +448,45 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
           diagnostics.ignored++; continue;
         }
         const text = visibleText(message.content);
-        if (text.trim()) push({ role: "user", kind: "message", text, timestamp, rawType: raw.type });
+        const native = nativeContentBlocks(message.content, raw);
+        if (text.trim()) push({ role: "user", kind: "message", text, timestamp, rawType: raw.type,
+          data: { seq: raw.seq, row: raw.row, ...(raw.time !== undefined ? { time: raw.time } : {}),
+            ...(native !== undefined ? { native } : {}) } });
       } else if (raw.type === "assistant/message") {
         const content = Array.isArray(message.content) ? message.content : [];
         const reasoning = content.map(record).filter(block => block.type === "reasoning" && typeof block.text === "string").map(block => block.text).join("");
         if (reasoning.trim()) push({ role: "reasoning", kind: "reasoning", text: reasoning, timestamp, rawType: raw.type });
         const text = visibleText(message.content);
-        if (text.trim()) push({ role: "assistant", kind: "message", text, timestamp, rawType: raw.type });
+        // Usage follows upstream usageOf(): the committed message's data.usage
+        // when present, otherwise the LAST usage sample embedded in its stream
+        // (missing usage on earlier rows never blocks a later valid sample).
+        // Every settlement flows through the (turn,step) replacement slot.
+        const metrics = data.usage !== undefined ? readDshUsageMetrics(data.usage) : observeDshStreamUsage(data.stream);
+        const rawUsage = data.usage !== undefined ? data.usage : lastStreamUsageRaw(data.stream);
+        const assistantSource = record(message.source);
+        const modelSource = assistantSource.kind === "model"
+          ? { provider: typeof assistantSource.provider === "string" ? assistantSource.provider : undefined,
+              model: typeof assistantSource.model === "string" ? assistantSource.model : undefined }
+          : {};
+        const scope = eventScope(data, raw);
+        const messageId = typeof message.id === "string" && message.id ? message.id : undefined;
+        const usage = Object.keys(metrics).length
+          ? settleUsage(metrics, data.interrupted === true ? "interrupted" : (data.usage !== undefined ? "committed" : "stream-final"), raw,
+              { ...scope, messageId, ...modelSource },
+              data.interrupted === true
+                ? "DSH assistant/message usage（中断后提交的前缀，TokenUsage 单步增量）"
+                : data.usage !== undefined
+                  ? "DSH assistant/message usage（TokenUsage 单步增量）"
+                  : "DSH assistant/message 缺 data.usage，采用流内最后 usage 采样（upstream usageOf 回退）",
+              rawUsage)
+          : undefined;
+        const native = nativeContentBlocks(message.content, raw);
+        if (text.trim()) push({ role: "assistant", kind: "message", text, timestamp, rawType: raw.type,
+          data: { seq: raw.seq, row: raw.row, ...(raw.time !== undefined ? { time: raw.time } : {}),
+            ...(scope.turn !== undefined || scope.step !== undefined
+              ? { ...(scope.turn !== undefined ? { turn: scope.turn } : {}), ...(scope.step !== undefined ? { step: scope.step } : {}) } : {}),
+            ...(Object.keys(modelSource).length ? { source: { kind: "model", ...modelSource } } : {}),
+            ...(usage ? { usage } : {}), ...(native !== undefined ? { native } : {}) } });
       } else {
         const result = toolResult(message);
         if (!result) {
@@ -346,12 +535,111 @@ async function projectDsh(ref: SessionRef, events: AsyncIterable<DshEvent>, repo
       for (const { entry } of pending.questions) entry.text += "\n\n（未记录可匹配的回答）";
     }
   }
+  // Fork-inherited seed history: usage recorded before the LAST tagged
+  // session/end-seed marker belongs to the parent lineage, not this thread's
+  // own consumption. Only header.isSeeded and the tagged markers are trusted
+  // signals; the records stay in the ledger flagged inherited/counted=false.
+  // The comparison is positional (record row < marker row) so envelopes
+  // missing seq are still classified, never silently counted as the child's.
+  if (seedCutRow !== undefined) {
+    usageLedger.forEach((usage, index) => {
+      const row = ledgerRow[index];
+      if (row !== undefined && row < seedCutRow) {
+        usage.inherited = true;
+        usage.counted = false;
+        if (usage.provenance?.metering) {
+          usage.provenance.metering.note = "fork 继承 seed 历史（最后一个 session/end-seed 标记之前），非本线程消耗，勿重复累计";
+        }
+      }
+    });
+  } else if (headerMeta.isSeeded) {
+    // A seeded header without any end-seed marker gives no cut: parent-lineage
+    // usage cannot be separated from this thread's, so NOTHING may be summed —
+    // every record stays unattributed (counted=false) rather than guessing.
+    report.add("seeded-fork-no-marker",
+      "header.isSeeded 为 true 但全文缺少 session/end-seed 标记，无法界定继承切点；为避免把父线程用量累计为本线程消耗，全部 usage 记录不计入");
+    usageLedger.forEach((usage) => {
+      usage.counted = false;
+      if (usage.provenance?.metering) {
+        usage.provenance.metering.note = "seed 会话缺少 end-seed 标记，无法区分父线程与本线程消耗，不计入任何统计";
+      }
+    });
+  }
   const notices = [...warnings];
   const diagnosticWarning = report.finish();
   if (diagnosticWarning) warnings.add(diagnosticWarning);
-  return { ...ref, title, updatedAt,
+  const result: ParsedSession = { ...ref, title, updatedAt,
     source: { kind: "events", path: ref.path, lossy: warnings.size > 0, warning: warnings.size ? [...warnings].join("；") : undefined, ...(notices.length ? { notices } : {}) },
-    entries, diagnostics };
+    entries, diagnostics, identity };
+  // Native document: single-pass usage ledger + session-graph identity from
+  // the v4 header (origin/parentSession+isSeeded→forkOf/delegationDepth/agentPreset).
+  // Committed messages carry data.native — normalized.ts lifts it onto
+  // block.native and strips it from the searchable entries projection, and
+  // blockType classifies result-only tool carriers as tool-result blocks.
+  return { ...result, document: documentFromParsed(result, { identity, usage: usageLedger }) };
+}
+
+// ---------------------------------------------------------------------------
+// Native content preservation. Only VISIBLE COMMITTED messages project their
+// source content blocks, onto document.block.native — deliberately outside
+// entry.data so nothing here can leak into search text. Binary payloads are
+// never copied; attachments keep filename/source-pointer metadata with an
+// explicit omission note (lossy, not "full fidelity"). Unknown blocks keep
+// bounded scalar metadata only. Non-user injections, failed-attempt bodies
+// and unknown plugin events never get native blocks at all.
+// ---------------------------------------------------------------------------
+
+const NATIVE_ATTACHMENT_OMITTED = "附件内容（base64/二进制）未随转录复制；仅保留文件名/来源指针等元数据，明确为有损保留";
+const NATIVE_UNKNOWN_NOTE = "未知内容块：仅保留字段名列表，不保留字段值（可能是未知插件的私有 payload），明确为有损保留";
+const NATIVE_BINARY_KEYS = new Set(["data", "base64", "bytes", "body", "buffer", "content", "blob", "stream", "text"]);
+const NATIVE_TEXT_LIMIT = 512;
+
+function nativeScalar(key: string, value: unknown): unknown | undefined {
+  if (NATIVE_BINARY_KEYS.has(key)) return undefined;
+  if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) return value;
+  if (typeof value === "string") return value.length > NATIVE_TEXT_LIMIT ? `${value.slice(0, NATIVE_TEXT_LIMIT)}…` : value;
+  return undefined;
+}
+
+function nativeScalars(source: Record<string, unknown>, limit = 16): Record<string, unknown> | undefined {
+  const scalars: Record<string, unknown> = {};
+  for (const key of Object.keys(source).sort()) {
+    const value = nativeScalar(key, source[key]);
+    if (value !== undefined) scalars[key] = value;
+    if (Object.keys(scalars).length >= limit) break;
+  }
+  return Object.keys(scalars).length ? scalars : undefined;
+}
+
+function attachmentFacts(attachment: Record<string, unknown>): Record<string, unknown> {
+  const facts = nativeScalars(attachment);
+  return { ...(facts ?? {}), omitted: NATIVE_ATTACHMENT_OMITTED };
+}
+
+/** Sanitized native projection of one committed message's content blocks, with per-block seq/row provenance. */
+function nativeContentBlocks(content: unknown, raw: DshEvent): unknown[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const blocks = content.map((value) => {
+    const block = record(value);
+    const base = { seq: raw.seq, row: raw.row, ...(raw.time !== undefined ? { time: raw.time } : {}) };
+    const type = typeof block.type === "string" ? block.type : "<invalid>";
+    if ((type === "text" || type === "reasoning") && typeof block.text === "string") {
+      return { type, ...base, text: block.text };
+    }
+    if (type === "image" || type === "file") {
+      return { type, ...base, attachment: attachmentFacts(record(block.attachment)) };
+    }
+    if (type === "tool-call" || type === "tool-result") {
+      const identifiers = nativeScalars({
+        callId: block.callId, toolCallId: block.toolCallId, name: block.name, id: block.id, isError: block.isError,
+      });
+      return { type, ...base, ...(identifiers ?? {}) };
+    }
+    // Unknown block types keep key names only: values could be a private
+    // plugin payload, so nothing beyond the field inventory is preserved.
+    return { type, ...base, note: NATIVE_UNKNOWN_NOTE, keys: Object.keys(block).sort() };
+  });
+  return blocks;
 }
 
 /** v4 tool results are first-class tool-role messages; released v3 wrapped one tool-result block in a user-role message. */

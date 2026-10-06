@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, readdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseSession } from "../parse.js";
 import { DatabaseSync } from "node:sqlite";
@@ -145,4 +146,59 @@ describe("private canonical search-text index", () => {
     const hits = await searchRefs([ref], "needle.txt", 20, { cacheDir: cache });
     expect(hits[0].entry.tool?.callId).toBe("read");
   });
+
+  it("bypasses cursor sources entirely: a meta.json-only session never writes a negative index, and a newer sibling store stays searchable", async () => {
+    // Synthetic cursor session (UUID layout, never live data): the ref points at
+    // meta.json while the transcript lives in the sibling store.db — a stat of
+    // ref.path can never witness store changes, so cursor must not persist.
+    const uuid = "99999999-2222-4333-8444-555555555555";
+    const sessionDir = join(join(root, "a".repeat(32)), uuid);
+    await mkdir(sessionDir, { recursive: true });
+    const metaPath = join(sessionDir, "meta.json");
+    await writeFile(metaPath, JSON.stringify({ schemaVersion: 1, createdAtMs: 1790000000000, cwd: "/tmp/cur", title: "Cursor session" }));
+    const metaStat = await stat(metaPath, { bigint: true });
+    const cursorRef: SessionRef = { agent: "cursor", id: uuid, path: metaPath,
+      source: { kind: "cursor-store", path: metaPath, lossy: true } };
+
+    // meta.json-only (hasConversation=false): metadata session, no transcript.
+    expect(await searchRefs([cursorRef], "absent needle", 20, { cacheDir: cache })).toEqual([]);
+    expect(parseSession).toHaveBeenCalledTimes(1);
+    await expect(stat(namespace())).rejects.toMatchObject({ code: "ENOENT" }); // no negative index written
+
+    // A sibling store appears later (Cursor started the conversation) while
+    // meta.json's stat is untouched — a persisted fingerprint on meta.json
+    // would have returned a stale negative; the bypass re-parses instead.
+    const needle = "cursor-fresh-needle";
+    const message = new TextEncoder().encode(JSON.stringify({ role: "user", content: needle }));
+    const rootBlob = Uint8Array.from([...varint((4 << 3) | 2), ...varint(message.length), ...message]);
+    const blobId = createHash("sha256").update(rootBlob).digest("hex");
+    const db = new DatabaseSync(join(sessionDir, "store.db"));
+    try {
+      db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT); CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB)");
+      db.prepare("INSERT INTO blobs (id, data) VALUES (?, ?)").run(blobId, rootBlob);
+      db.prepare("INSERT INTO meta (key, value) VALUES ('0', ?)")
+        .run(Buffer.from(JSON.stringify({ agentId: uuid, latestRootBlobId: blobId })).toString("hex"));
+    } finally { db.close(); }
+    const after = await stat(metaPath, { bigint: true });
+    expect([after.dev, after.ino, after.size, after.mtimeNs, after.ctimeNs])
+      .toEqual([metaStat.dev, metaStat.ino, metaStat.size, metaStat.mtimeNs, metaStat.ctimeNs]); // meta.json fingerprint fields untouched by the store appearing
+
+    const hits = await searchRefs([cursorRef], needle, 20, { cacheDir: cache });
+    expect(hits).toHaveLength(1);
+    expect(hits[0].entry.text).toBe(needle);
+    expect(parseSession).toHaveBeenCalledTimes(2); // every search re-parses: no cursor cache at all
+    await expect(stat(namespace())).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
+
+function varint(n: number): number[] {
+  const out: number[] = [];
+  let value = n;
+  do {
+    let byte = value & 0x7f;
+    value = Math.floor(value / 128);
+    if (value > 0) byte |= 0x80;
+    out.push(byte);
+  } while (value > 0);
+  return out;
+}

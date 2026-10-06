@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { expandHome } from "../../core/fs.js";
 import { SearchWorkerPool } from "../../core/search-worker.js";
 import { deriveProject, findSessionAmong, searchRefs } from "../../core/index.js";
+import { mapConcurrent } from "../../core/concurrency.js";
+import { probeIdentity } from "../../core/relations.js";
 import { nonNegativeInteger, searchConcurrency, withAgent, withRole, withRoots, withSource } from "../options/common.js";
 import { resolveRefs } from "../options/resolve.js";
 import { SearchDiagnosticReporter } from "../util/search-diagnostics.js";
@@ -21,7 +23,11 @@ export function buildSearchCommand(): Command {
     .option("--cache-dir <path>", "cache root (default: ASMGR_CACHE_HOME or XDG_CACHE_HOME/asmgr)")
     .option("-j, --concurrency <n>", "maximum simultaneous session reads (1-32)", searchConcurrency, 2)
     .option("-q, --quiet", "suppress search diagnostics")
-    .option("--verbose", "include per-session diagnostics and attachment notices");
+    .option("--verbose", "include per-session diagnostics and attachment notices")
+    // Guardian sessions are background supervision transcripts; their hits are
+    // noise for default searches. --include-guardian keeps them (the --role
+    // option stays the timeline message-role filter — a different context).
+    .option("--include-guardian", "also search guardian sessions (excluded by default)");
   withSource(cmd, "search an explicit session file/directory (e.g. a restic-restored backup cache)");
   withRoots(cmd);
   cmd.action(async (query, opts) => {
@@ -30,9 +36,13 @@ export function buildSearchCommand(): Command {
     const refs = await resolveRefs(opts);
     let scopedRefs = refs;
     if (opts.session) {
+      // Resolve identity before hiding noise: an ambiguous prefix must never select a different session.
       const session = findSessionAmong(refs, opts.session);
       if (!session) throw new Error(`session not found: ${opts.session}`);
-      scopedRefs = [session];
+      scopedRefs = [session]; // Explicit selection includes a guardian intentionally.
+    } else if (!opts.includeGuardian && !(refs.length === 1 && (opts.file || opts.events))) {
+      const probed = await mapConcurrent(refs, 8, async (ref) => ({ ref, identity: await probeIdentity(ref) }));
+      scopedRefs = probed.filter(({ identity }) => identity.role !== "guardian").map(({ ref }) => ref);
     }
     const diagnostics = new SearchDiagnosticReporter(opts.quiet, opts.verbose);
     const cacheDir = opts.cache ? resolve(expandHome(opts.cacheDir || process.env.ASMGR_CACHE_HOME

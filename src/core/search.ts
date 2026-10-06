@@ -1,6 +1,6 @@
 import { mapConcurrent } from "./concurrency.js";
 import { readSearchSession } from "./session-cache.js";
-import { sortSessionRefs } from "./session-metadata.js";
+import { sessionReference, sortSessionRefs } from "./session-metadata.js";
 import { excerpt, timelineEntrySearchText } from "./text.js";
 import type { SearchHit, SessionRef, TimelineRole } from "./types.js";
 
@@ -33,7 +33,8 @@ export async function scanSession(ref: SessionRef, query: string, limit: number,
   const found: SearchHit[] = [];
   try {
     const { parsed, lowerTexts } = await readSearchSession(ref, query, options.cacheDir);
-    const { entries, diagnostics: report, ...session } = parsed;
+    const { entries, diagnostics: report } = parsed;
+    const session = sessionReference(parsed);
     const notices = new Set(parsed.source?.notices ?? []);
     for (const message of notices) diagnostics.push({ kind: "notice", session: ref, code: "source-notice", message });
     for (const issue of report?.issues ?? []) diagnostics.push({ kind: "warning", session: ref, code: issue.code, message: issue.message });

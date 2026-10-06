@@ -23,6 +23,7 @@
     "dev": "tsx src/cli/index.ts",
     "prepare": "node scripts/bundle.mjs",
     "test": "tsc -p tsconfig.json && vitest run",
+    "test:local": "tsx scripts/validate-local-sessions.ts",
     "release": "semantic-release"
   },
   "devDependencies": {

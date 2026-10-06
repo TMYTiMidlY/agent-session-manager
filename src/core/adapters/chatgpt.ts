@@ -4,6 +4,7 @@ import { decode } from "turbo-stream";
 import type { ParseDiagnostics, ParsedSession, SessionRef, TimelineEntry } from "../types.js";
 import { contentToText } from "../text.js";
 import { expandHome, readJson, walkFiles } from "../fs.js";
+import { documentFromParsed } from "../normalized.js";
 
 const SNAPSHOT_FORMAT = "asmgr.chatgpt-share";
 const SNAPSHOT_VERSION = 1;
@@ -255,6 +256,10 @@ export function parseChatGptSnapshot(
       contentReferences: metadata?.content_references,
       searchResultGroups: metadata?.search_result_groups,
       visuallyHidden,
+      // Native block facts: structured multimodal parts keep their type and
+      // asset pointer; share payloads carry NO token usage — absent means
+      // unknown, never zero, and no usage record is fabricated.
+      ...(nativeParts(message) ?? {}),
     });
 
     if (role === "user") {
@@ -410,7 +415,7 @@ export function parseChatGptSnapshot(
     unknownTypes: [...unknownTypes].sort(),
   };
 
-  return {
+  const result: ParsedSession = {
     ...ref,
     agent: "chatgpt",
     id,
@@ -427,6 +432,9 @@ export function parseChatGptSnapshot(
     diagnostics,
     entries,
   };
+  // Public share payloads expose no token metering: usage is unknown (empty
+  // ledger), not zero; native blocks were preserved above without invention.
+  return { ...result, document: documentFromParsed(result, { identity: { role: "main" }, usage: [] }) };
 }
 
 function refFromSnapshot(path: string, snapshot: ChatGptShareSnapshot): SessionRef {
@@ -575,6 +583,26 @@ function partToText(value: unknown): string {
     return `[image:${stringValue(part.asset_pointer) ?? "unknown"}]`;
   }
   return contentToText(part);
+}
+
+/** Structured multimodal part facts (no asset bytes; no fabricated usage). */
+function nativeParts(message: Record<string, unknown>): { nativeBlocks: unknown[] } | undefined {
+  const content = asRecord(message.content);
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return undefined;
+  const blocks = parts.flatMap((value) => {
+    const part = asRecord(value);
+    if (!part) return [];
+    const contentType = stringValue(part.content_type);
+    if (contentType === undefined) return [];
+    return [{
+      contentType,
+      ...(stringValue(part.asset_pointer) !== undefined ? { assetPointer: stringValue(part.asset_pointer) } : {}),
+      ...(stringValue(part.content_type) === "image_asset_pointer" && typeof part.width === "number" ? { width: part.width } : {}),
+      ...(stringValue(part.content_type) === "image_asset_pointer" && typeof part.height === "number" ? { height: part.height } : {}),
+    }];
+  });
+  return blocks.length ? { nativeBlocks: blocks } : undefined;
 }
 
 function parseToolArguments(text: string): unknown {

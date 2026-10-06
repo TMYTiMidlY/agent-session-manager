@@ -24,7 +24,7 @@ export function withRole(cmd: Command): Command {
 
 /** `-a, --agent` selector. */
 export function withAgent(cmd: Command): Command {
-  return cmd.option("-a, --agent <agent>", "copilot|claude|codex|chatgpt|dsh|all", "all");
+  return cmd.option("-a, --agent <agent>", "copilot|claude|codex|chatgpt|dsh|cursor (cursor-agent)|all", "all");
 }
 
 /**
@@ -45,7 +45,8 @@ export function withRoots(cmd: Command): Command {
     .option("--claude-root <path>", "override Claude projects root")
     .option("--codex-root <path>", "override Codex sessions root")
     .option("--chatgpt-root <path>", "覆盖托管的 ChatGPT 导入目录")
-    .option("--dsh-root <path>", "override DeepSeek Harness sessions root");
+    .option("--dsh-root <path>", "override DeepSeek Harness sessions root")
+    .option("--cursor-root <path>", "override Cursor Agent chats root");
 }
 
 /** agent + source + roots, in the historical order — for commands with no interleaved options. */

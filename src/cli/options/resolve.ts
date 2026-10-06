@@ -15,7 +15,8 @@ import { BIN_NAME } from "../brand.js";
 
 export function parseAgents(value: string): AgentKind[] {
   if (value === "all") return AGENTS;
-  if (value === "copilot" || value === "claude" || value === "codex" || value === "chatgpt" || value === "dsh") return [value];
+  if (value === "cursor-agent") return ["cursor"];
+  if (value === "copilot" || value === "claude" || value === "codex" || value === "chatgpt" || value === "dsh" || value === "cursor") return [value];
   throw new Error(`unknown agent: ${value}`);
 }
 
@@ -37,6 +38,7 @@ export function rootsFromOptions(opts: Record<string, unknown>): AgentRoots {
     codex: typeof opts.codexRoot === "string" ? opts.codexRoot : undefined,
     chatgpt: typeof opts.chatgptRoot === "string" ? opts.chatgptRoot : undefined,
     dsh: typeof opts.dshRoot === "string" ? opts.dshRoot : undefined,
+    cursor: typeof opts.cursorRoot === "string" ? opts.cursorRoot : undefined,
   };
 }
 

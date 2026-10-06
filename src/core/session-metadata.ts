@@ -3,10 +3,21 @@ import { resolve } from "node:path";
 import type { SessionRef } from "./types.js";
 import { expandHome, iterateJsonl } from "./fs.js";
 import { mapConcurrent } from "./concurrency.js";
+import { codexIdentity } from "./adapters/codex-metadata.js";
 
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
 const text = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
+
+/** Detach discovery metadata without copying normalized transcripts or usage ledgers. */
+export function sessionReference(session: SessionRef): SessionRef {
+  return {
+    agent: session.agent, id: session.id, path: session.path,
+    startedAt: session.startedAt, updatedAt: session.updatedAt, mtime: session.mtime,
+    size: session.size, cwd: session.cwd, title: session.title,
+    repository: session.repository, branch: session.branch, source: session.source, identity: session.identity,
+  };
+}
 
 /** Discovery samples metadata, never builds a timeline merely to list/filter it. */
 export async function sessionMetadata(ref: SessionRef): Promise<SessionRef> {
@@ -18,7 +29,7 @@ export async function sessionMetadata(ref: SessionRef): Promise<SessionRef> {
   } catch {
     // Keep disappearing/unreadable refs visible; parsing reports the actual refusal.
   }
-  if (ref.agent === "dsh" || ref.agent === "chatgpt" || ref.source?.kind === "db-turns") return result;
+  if (ref.agent === "dsh" || ref.agent === "chatgpt" || ref.agent === "cursor" || ref.source?.kind === "db-turns") return result;
   try {
     let sampled = 0;
     for await (const value of iterateJsonl(ref.path)) {
@@ -31,6 +42,7 @@ export async function sessionMetadata(ref: SessionRef): Promise<SessionRef> {
         const payload = record(row.payload);
         result.cwd ??= text(payload.cwd);
         result.startedAt ??= text(payload.timestamp) ?? text(row.timestamp);
+        result.identity = { role: "unknown", ...codexIdentity(payload) };
       } else if (ref.agent === "claude" && typeof row.cwd === "string") {
         result.cwd ??= row.cwd;
         result.startedAt ??= text(row.timestamp);

@@ -1,7 +1,8 @@
 import { basename, dirname } from "node:path";
-import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail, ToolResultKind } from "../types.js";
+import type { ParsedSession, SessionRef, TimelineEntry, ToolDetail, ToolResultKind, UsageRecord } from "../types.js";
 import { contentToText } from "../text.js";
 import { expandHome, iterateJsonl, walkFiles } from "../fs.js";
+import { documentFromParsed } from "../normalized.js";
 import { listCopilotDbSessions, readCopilotDbSession } from "./copilot-db.js";
 
 const DEFAULT_ROOT = "~/.copilot/session-state";
@@ -95,6 +96,10 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
   }
 
   const entries: TimelineEntry[] = [];
+  // Native usage ledger: only fields whose meaning was verified against real
+  // events.jsonl records. `session.usage_checkpoint` semantics are NOT
+  // verified, so it stays intentionally ignored — unknown, never zero.
+  const usageLedger: UsageRecord[] = [];
   let cwd = ref.cwd;
   let startedAt = ref.startedAt;
   let updatedAt = ref.updatedAt;
@@ -103,6 +108,7 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
   const branch = ref.branch;
   const diagnosticCounts = { handled: 0, ignored: 0, unknown: 0 };
   const unknownTypes = new Set<string>();
+  let badJsonRows = 0;
 
   /** tool entries waiting for their matching complete event, keyed by callId */
   const pendingTools = new Map<string, TimelineEntry>();
@@ -124,6 +130,13 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     const type = String(event.type ?? "event");
     const timestamp = typeof event.timestamp === "string" ? event.timestamp : undefined;
     updatedAt = timestamp ?? updatedAt;
+
+    if (type === "parse_error") {
+      // fs.ts marks unparseable JSONL lines; count them for diagnostics
+      // instead of letting them surface as an unknown event type.
+      badJsonRows++;
+      continue;
+    }
 
     if (isIntentionallyIgnoredEvent(type)) {
       diagnosticCounts.ignored += 1;
@@ -318,6 +331,64 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
       if (durationMs === undefined && timestamp && pendingCompactionStart) {
         durationMs = Date.parse(timestamp) - Date.parse(pendingCompactionStart);
       }
+      // compactionTokensUsed is the summarizer LLM call's own metering
+      // (verified field names: inputTokens/outputTokens/model/duration).
+      // LOCAL EVIDENCE (本机 ~/.copilot/session-state/*/events.jsonl, 326 条
+      // compaction 记录): the top-level inputTokens is the FULL prompt count —
+      // in every record carrying a COMPLETE four-bucket
+      // copilotUsage.tokenDetails (296 条),
+      // tokenDetails.input + tokenDetails.cache_read + tokenDetails.cache_write
+      // === inputTokens exactly (本机完整明细记录恒等式无失配) — so it must
+      // NEVER be mapped to the uncached inputTokens bucket. The disjoint
+      // decomposition comes from tokenDetails itself when present and
+      // arithmetically consistent (the gate verifies each record
+      // individually); otherwise input stays unknown (never guessed, never
+      // zero).
+      const compactInput = usage.inputTokens;
+      const compactOutput = usage.outputTokens;
+      const compactModel = typeof usage.model === "string" ? usage.model : undefined;
+      const outputValid = typeof compactOutput === "number" && Number.isSafeInteger(compactOutput) && compactOutput >= 0;
+      const inputValid = typeof compactInput === "number" && Number.isSafeInteger(compactInput) && compactInput >= 0;
+      const serviceRequestId = typeof data.serviceRequestId === "string" && data.serviceRequestId ? data.serviceRequestId : undefined;
+      if (inputValid && outputValid) {
+        const details = tokenDetails(usage.copilotUsage);
+        const metrics: Record<string, number> = {};
+        let conversion: UsageRecord["conversion"];
+        if (details && details.input + details.cacheRead + details.cacheWrite === compactInput && details.output === compactOutput) {
+          metrics.inputTokens = details.input;
+          metrics.cacheReadTokens = details.cacheRead;
+          metrics.cacheWriteTokens = details.cacheWrite;
+          metrics.outputTokens = compactOutput;
+          conversion = {
+            rule: "compactionTokensUsed.inputTokens 实测为含缓存的提示总量（input+cache_read+cache_write===inputTokens，本机完整明细记录恒等式无失配）；"
+              + "未缓存输入与缓存桶取自同 payload 的 copilotUsage.tokenDetails（恒等式校验通过后映射），outputTokens 直映射",
+            sourceFields: ["compactionTokensUsed.inputTokens", "compactionTokensUsed.outputTokens",
+              "compactionTokensUsed.copilotUsage.tokenDetails[input,cache_read,cache_write,output]"],
+            reference: "本机 ~/.copilot/session-state events.jsonl 实测（326 条 compaction 记录，296 条含完整四桶 tokenDetails，恒等式 0 失配）",
+          };
+        } else {
+          metrics.outputTokens = compactOutput;
+          conversion = {
+            rule: "compactionTokensUsed.inputTokens 实测为含缓存的提示总量，不能映射为未缓存输入；该记录缺可校验的 tokenDetails 分解，input 保持 unknown（不猜 0）",
+            sourceFields: ["compactionTokensUsed.inputTokens", "compactionTokensUsed.outputTokens"],
+            reference: "本机 ~/.copilot/session-state events.jsonl 实测（input+cache_read+cache_write===inputTokens 恒等式）",
+          };
+        }
+        usageLedger.push({
+          id: `u${usageLedger.length}`,
+          ...(timestamp !== undefined ? { timestamp } : {}),
+          ...(serviceRequestId !== undefined ? { responseId: serviceRequestId } : {}),
+          cumulative: false,
+          metrics,
+          ...(compactModel !== undefined ? { model: compactModel } : {}),
+          raw: { compactionTokensUsed: { inputTokens: compactInput, outputTokens: compactOutput,
+            ...(typeof usage.cacheReadTokens === "number" ? { cacheReadTokens: usage.cacheReadTokens } : {}),
+            ...(typeof usage.cacheWriteTokens === "number" ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
+            ...(compactModel !== undefined ? { model: compactModel } : {}) } },
+          conversion,
+          provenance: { agent: "copilot", rawType: type, metering: { source: "Copilot compactionTokensUsed（压缩摘要调用增量；input 含缓存口径已在本机数据核实）" } },
+        });
+      }
       push({
         role: "event",
         kind: "compaction",
@@ -424,7 +495,7 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
 
   }
 
-  return {
+  const result: ParsedSession = {
     ...ref,
     startedAt,
     updatedAt,
@@ -432,13 +503,19 @@ export async function parseCopilot(ref: SessionRef): Promise<ParsedSession> {
     title,
     repository,
     branch,
-    source: { kind: "events", path: ref.path, lossy: false },
+    source: badJsonRows > 0
+      ? { kind: "events", path: ref.path, lossy: true, warning: `来源含 ${badJsonRows} 行损坏的 JSON 记录，已省略` }
+      : { kind: "events", path: ref.path, lossy: false },
     diagnostics: {
       ...diagnosticCounts,
       unknownTypes: [...unknownTypes].sort(),
+      ...(badJsonRows > 0
+        ? { issues: [{ code: "invalid-json-row", message: `损坏的 JSON 记录已省略（${badJsonRows} 行）`, count: badJsonRows }] }
+        : {}),
     },
     entries,
   };
+  return { ...result, document: documentFromParsed(result, { identity: { role: "main" }, usage: usageLedger }) };
 }
 
 async function parseCopilotDb(ref: SessionRef): Promise<ParsedSession> {
@@ -462,7 +539,9 @@ async function parseCopilotDb(ref: SessionRef): Promise<ParsedSession> {
     if (turn.assistantResponse) push("assistant", turn.assistantResponse, turn.turnIndex);
   }
 
-  return {
+  // DB fallback: the turns table carries no token metering — usage stays
+  // unknown (empty ledger), never fabricated zeros.
+  const result: ParsedSession = {
     ...ref,
     cwd: stored?.session.cwd ?? ref.cwd,
     title: stored?.session.summary ?? ref.title,
@@ -471,12 +550,39 @@ async function parseCopilotDb(ref: SessionRef): Promise<ParsedSession> {
     source: { kind: "db-turns", path: ref.path, lossy: true },
     entries,
   };
+  return { ...result, document: documentFromParsed(result, { identity: { role: "main" }, usage: [] }) };
 }
 
 function stringOrEmpty(value: unknown): string {
   if (typeof value === "string") return value;
   if (value == null) return "";
   return contentToText(value);
+}
+
+/**
+ * Disjoint token decomposition from copilotUsage.tokenDetails. Returns the
+ * four buckets only when every entry is a valid non-negative integer count;
+ * callers must additionally verify the arithmetic identity against the
+ * record's own inputTokens/outputTokens before trusting the decomposition.
+ */
+function tokenDetails(value: unknown): { input: number; cacheRead: number; cacheWrite: number; output: number } | undefined {
+  const usage = value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const details = Array.isArray(usage.tokenDetails) ? usage.tokenDetails : undefined;
+  if (!details) return undefined;
+  const buckets: Partial<Record<"input" | "cache_read" | "cache_write" | "output", number>> = {};
+  for (const entry of details) {
+    const detail = entry !== null && typeof entry === "object" && !Array.isArray(entry) ? entry as Record<string, unknown> : {};
+    const tokenType = detail.tokenType;
+    const tokenCount = detail.tokenCount;
+    if ((tokenType !== "input" && tokenType !== "cache_read" && tokenType !== "cache_write" && tokenType !== "output")
+      || typeof tokenCount !== "number" || !Number.isSafeInteger(tokenCount) || tokenCount < 0
+      || tokenType in buckets) return undefined;
+    buckets[tokenType] = tokenCount;
+  }
+  if (buckets.input === undefined || buckets.cache_read === undefined || buckets.cache_write === undefined || buckets.output === undefined) {
+    return undefined;
+  }
+  return { input: buckets.input, cacheRead: buckets.cache_read, cacheWrite: buckets.cache_write, output: buckets.output };
 }
 
 function askUserQuestion(value: unknown): string | undefined {
