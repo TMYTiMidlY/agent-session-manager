@@ -1,3 +1,10 @@
+# [0.6.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.5.0...v0.6.0) (2026-10-06)
+
+
+### Features
+
+* unify session documents and add faithful Codex analytics and Cursor support ([ea3316e](https://github.com/TMYTiMidlY/agent-session-manager/commit/ea3316e841a0e462ce044c4ac35d2b8718a7fa42))
+
 # [0.5.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.4.2...v0.5.0) (2026-10-04)
 
 
