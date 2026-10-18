@@ -1,3 +1,10 @@
+## [0.6.1](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.6.0...v0.6.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* improve session continuation views and Cursor diagnostics ([39fd0d4](https://github.com/TMYTiMidlY/agent-session-manager/commit/39fd0d4bada20733870e8dfe5f93cc6e43f2f8ea))
+
 # [0.6.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.5.0...v0.6.0) (2026-10-06)
 
 
