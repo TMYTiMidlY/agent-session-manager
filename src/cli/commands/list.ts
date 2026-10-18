@@ -82,6 +82,10 @@ function verboseNotes(row: SessionRow): string[] {
       const types = diagnostics.unknownTypes.length ? ` (${diagnostics.unknownTypes.join(", ")})` : "";
       notes.push(`unknown rows: ${diagnostics.unknown}${types}${diagnostics.unknownTypesTruncated ? " …" : ""}`);
     }
+    if (diagnostics.unparsedEnvelopeFields !== undefined) {
+      const types = diagnostics.unparsedEnvelopeTypes?.length ? ` (${diagnostics.unparsedEnvelopeTypes.join(", ")})` : "";
+      notes.push(`unparsed envelope fields: ${diagnostics.unparsedEnvelopeFields}${types}${diagnostics.unparsedEnvelopeTypesTruncated ? " …" : ""}`);
+    }
     for (const issue of diagnostics.issues ?? []) {
       notes.push(`${issue.code}: ${issue.message}${issue.count > 1 ? ` [${issue.count}x]` : ""}`);
     }

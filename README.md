@@ -24,6 +24,8 @@ HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主�
 | 在单个会话内搜索 | `asmgr search "关键词" --session <session-id>` |
 | 打印一个会话 | `asmgr show <session-id> --agent claude` |
 | 只看对话主干（跳过工具调用） | `asmgr show <session-id> --format dialogue` |
+| 读取最近的规范化条目 | `asmgr show <session-id> --tail 20` |
+| 接续前快速核对原始证据 | `asmgr show <session-id> --summary` |
 | 导入公开 ChatGPT 分享 | `asmgr import 'https://chatgpt.com/share/<id>'` |
 | 直接读取 ChatGPT 分享主干 | `asmgr show 'https://chatgpt.com/share/<id>' --format dialogue` |
 | 导出 Markdown（Copilot `/share file` 风格） | `asmgr md <session-id> -o session.md` |
@@ -297,10 +299,23 @@ asmgr import 'https://chatgpt.com/share/<conversation-id>'
 asmgr show <session-id> --agent codex
 asmgr show <session-id> --agent copilot --format dialogue
 asmgr show <session-id> --agent codex --format json
+asmgr show <session-id> --agent cursor --tail 20
+asmgr show <session-id> --agent cursor --summary
+asmgr show <session-id> --agent cursor --summary --tail 10 -f json
 asmgr show 'https://chatgpt.com/share/<id>' --format dialogue
 ```
 
 `--format dialogue` 只保留**用户消息 / 交互式提问与选项 / 用户决策或回答 / 压缩摘要 / 助手回复**，跳过普通工具调用的全部内容与 reasoning。DSH 的 `ask_user_question` 保留题目、全部选项、单/多选信息、选中项和自由回答；Copilot 的 `ask_user` 保留题目、全部候选项及回答。工具噪音被剔掉后，每条用户 prompt 直接紧跟回答它的助手回复，prompt↔回复的对应关系一目了然——适合会话复盘、交接和收尾盘点等需要通读对话主干的场景。`--format text` 则含完整工具参数+结果、子代理/技能/计划/压缩统计。
+
+#### 尾部与接续摘要
+
+`--tail <n>` 在 `--role` 过滤后取最后 n 条**规范化 timeline 条目**，不是原始 JSONL 行、用户轮次或最终显示行数；n 必须为非负安全整数，0 输出空正文。各格式使用同一切片；dialogue 随后仍会剔除普通工具，所以可能少于 n 条。编号保留完整 timeline 的位置。JSON 的 `entries`、`document.blocks` 与消息事件同步裁剪，`document.view` 标明 `tail` / `role`，不经原生 opaque 内容泄漏被裁掉的消息。用量与解析诊断仍是整个会话的口径，不是尾部的小计。guardian 子线程分别按同样规则取尾部，`--no-guardian` 可关闭附带线程。
+
+`--summary` 是从已读历史中**确定性提取证据**的接续摘要，不调用模型，不执行原生 resume，也不检查工作区或远端 PR 是否已变化。它突出最后直接用户输入、最近助手消息、源记录明确标为失败/拒绝/无权限的工具及其参数和结果，并附来源损失与解析诊断。调用和结果分开记录时，只在 callId 关联唯一且调用在前的情况下补齐参数，歧义时保持未知。DSH 的 model-only 输入、Claude 明确标记的 meta / 压缩摘要 / sidechain 输入不提升为主线程直接用户要求；Cursor 只解开已观测的完整 `timestamp` + `user_query` 包装，其余未知标签包装保守跳过。助手关于“已完成”的发言仍只是原话；工具返回成功也不代表其内部编译、验证或任务已成功。无明确失败状态的错误样文本不会被猜成失败，未发现失败记录不代表没有失败。
+
+text / dialogue 的 `--summary` 用摘要替代完整正文；JSON 在会话视图之外附 `recoverySummary`。摘要基于完整的 role-filtered 历史提取，不受 `--tail` 裁剪影响，因此可用 `--summary --tail 10 -f json` 同时获取接续证据与短尾部。摘录、工具数量和长度有界，超出会标明截断；guardian 的摘要按来源独立列出，不冒充主会话用户。
+
+Cursor 的 `diagnostics.unknown` / `unknownTypes` 仅描述未知消息、内容块或 opaque 消息载荷；`unparsedEnvelopeFields` / `unparsedEnvelopeTypes` 独立描述已扫描但语义未解释的 protobuf 封装字段（计出现次数，类型为有界样本）。因此 `unknown=0` 不代表所有封装字段都已解释，也不保证 token、成本、逐消息时间或不可达分支完整。`list --stats --verbose` 同样分别打印这两类诊断。
 
 #### dialogue 头部与角色过滤
 

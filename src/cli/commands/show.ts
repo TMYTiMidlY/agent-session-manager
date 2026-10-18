@@ -4,10 +4,11 @@ import { Command } from "commander";
 import { parseSession, sessionToDialogue, sessionToText } from "../../core/index.js";
 import { mapConcurrent } from "../../core/concurrency.js";
 import { probeIdentity } from "../../core/relations.js";
-import { withAgent, withRole, withRoots, withSource } from "../options/common.js";
+import { nonNegativeInteger, withAgent, withRole, withRoots, withSource } from "../options/common.js";
 import { resolveOne, resolveRefs } from "../options/resolve.js";
 import type { ParsedSession, SessionDocument, TimelineEntry, TimelineRole } from "../../core/types.js";
-import { filterDocumentRole, projectEntries } from "../../core/normalized.js";
+import { computeStats, filterDocumentRole, projectEntries, tailDocument } from "../../core/normalized.js";
+import { buildRecoverySummary, renderRecoverySummary, type RecoverySummary } from "../util/show-recovery.js";
 
 interface GuardianThread {
   agent: string;
@@ -18,6 +19,7 @@ interface GuardianThread {
   /** The guardian's own unified document — the same content shape as the main payload. */
   document?: SessionDocument;
   entries: TimelineEntry[];
+  recoverySummary?: RecoverySummary;
 }
 
 /**
@@ -45,7 +47,19 @@ function guardianHeader(id: string, path: string): string {
 function filterByRole(session: ParsedSession, role: TimelineRole | undefined): ParsedSession {
   if (role === undefined) return session;
   const document = session.document ? filterDocumentRole(session.document, role) : undefined;
-  return { ...session, document, entries: document ? projectEntries(document) : session.entries.filter(entry => entry.role === role) };
+  return { ...session, identity: document?.identity ?? session.identity, document,
+    stats: document ? computeStats(document) : session.stats,
+    entries: document ? projectEntries(document) : session.entries.filter(entry => entry.role === role) };
+}
+
+/** Tail counts normalized entries, not rendered dialogue turns; zero means an empty transcript. */
+function reducedView(session: ParsedSession, tail: number | undefined, summary: boolean): ParsedSession {
+  if (tail === undefined && !summary) return session;
+  const count = tail ?? session.entries.length;
+  const document = session.document ? tailDocument(session.document, count) : undefined;
+  return { ...session, identity: document?.identity ?? session.identity, document,
+    stats: document ? computeStats(document) : session.stats,
+    entries: document ? projectEntries(document) : count === 0 ? [] : session.entries.slice(-count) };
 }
 
 export function buildShowCommand(): Command {
@@ -54,6 +68,8 @@ export function buildShowCommand(): Command {
     .description("Print a session as text, dialogue, or JSON");
   withRole(withAgent(cmd))
     .option("-f, --format <format>", "text|dialogue|json", "text")
+    .option("--tail <n>", "last N normalized entries AFTER --role, independently per thread (non-negative safe integer; 0 = empty transcript)", nonNegativeInteger)
+    .option("--summary", "factual continuation evidence, NOT native resume: replaces text/dialogue; JSON adds recoverySummary; reads full role-filtered session BEFORE --tail")
     .option("--no-guardian", "show only this session, without guardian sub-threads (merged by default with their origin marked)")
     .option("-o, --out <path>", "output file (default: stdout)");
   withSource(cmd, "read an explicit session file/directory instead of the live agent homes");
@@ -61,24 +77,31 @@ export function buildShowCommand(): Command {
   cmd.action(async (id, opts) => {
     const ref = await resolveOne(id, opts);
     const parsed = await parseSession(ref);
-    const session = filterByRole(parsed, opts.role);
+    const fullSession = filterByRole(parsed, opts.role);
+    const session = reducedView(fullSession, opts.tail, !!opts.summary);
+    const recoverySummary = opts.summary ? buildRecoverySummary(fullSession, { role: opts.role, tail: opts.tail }) : undefined;
     const guardianSessions = opts.guardian === false ? [] : await findGuardianThreads(parsed, opts);
-    // The role filter applies to guardian entries too; their roles stay verbatim.
-    const guardians: GuardianThread[] = guardianSessions.map(child => {
-      const scoped = filterByRole(child, opts.role);
-      return { agent: child.agent, id: child.id, role: "guardian", path: child.path,
-        source: child.source, document: scoped.document, entries: scoped.entries };
+    // Role → tail applies to each thread independently; summary reads the pre-tail scope.
+    const childViews = guardianSessions.map(child => {
+      const full = filterByRole(child, opts.role);
+      return { session: reducedView(full, opts.tail, !!opts.summary),
+        summary: opts.summary ? buildRecoverySummary(full, { role: opts.role, tail: opts.tail, origin: "guardian" }) : undefined };
     });
+    const guardians: GuardianThread[] = childViews.map(({ session: child, summary }) => ({
+      agent: child.agent, id: child.id, role: "guardian", path: child.path,
+      source: child.source, document: child.document, entries: child.entries,
+      ...(summary ? { recoverySummary: summary } : {}),
+    }));
 
     let output: string;
     if (opts.format === "json") {
-      output = `${JSON.stringify({ ...session, ...(guardians.length ? { guardianThreads: guardians } : {}) }, null, 2)}\n`;
+      output = `${JSON.stringify({ ...session, ...(recoverySummary ? { recoverySummary } : {}),
+        ...(guardians.length ? { guardianThreads: guardians } : {}) }, null, 2)}\n`;
     } else {
       const renderChild = opts.format === "dialogue" ? sessionToDialogue : sessionToText;
-      const rendered = [renderChild(session).replace(/\n$/, "")];
-      for (const child of guardianSessions) {
-        const scoped = filterByRole(child, opts.role);
-        rendered.push(`${guardianHeader(`${child.agent}:${child.id}`, child.path)}\n\n${renderChild(scoped)}`);
+      const rendered = [(recoverySummary ? renderRecoverySummary(recoverySummary) : renderChild(session)).replace(/\n$/, "")];
+      for (const { session: child, summary } of childViews) {
+        rendered.push(`${guardianHeader(`${child.agent}:${child.id}`, child.path)}\n\n${summary ? renderRecoverySummary(summary) : renderChild(child)}`);
       }
       output = `${rendered.join("\n\n")}\n`;
     }

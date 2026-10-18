@@ -89,6 +89,12 @@ export interface ParseDiagnostics {
   unknownTypes: string[];
   /** True when unknownTypes is a bounded sample rather than an exhaustive list. */
   unknownTypesTruncated?: boolean;
+  /** Fully scanned protobuf field occurrences whose envelope semantics remain unverified (Cursor reachable chain only); not unknown messages. */
+  unparsedEnvelopeFields?: number;
+  /** Sorted, distinct field-type samples (e.g. proto-field:5), separate from unknownTypes. */
+  unparsedEnvelopeTypes?: string[];
+  /** True when unparsedEnvelopeTypes is a bounded sample rather than an exhaustive list. */
+  unparsedEnvelopeTypesTruncated?: boolean;
   /** Stored generation, not a runtime migration target. */
   formatVersion?: number;
   /** Bounded payload-free samples of compatibility gaps or malformed records. */
@@ -275,8 +281,8 @@ export interface SessionDocument {
   basis?: { harness: "dsh"; formatVersion: 4; commit: string };
   /** Always populated at the parseSession boundary; optional for adapter staging. */
   events?: NormalizedEvent[];
-  /** Explicitly reduced CLI view; opaque carriers are omitted when filtering message roles. */
-  view?: { role: TimelineRole; nativeContent: "omitted" };
+  /** Explicitly reduced CLI view; opaque carriers are omitted when filtering roles or taking a tail. */
+  view?: { role?: TimelineRole; tail?: number; nativeContent: "omitted" };
   /** Convenience views of message/append and usage/record event payloads. */
   blocks: MessageBlock[];
   usage: UsageRecord[];

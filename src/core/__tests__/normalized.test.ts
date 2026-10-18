@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, createDocumentBuilder, documentFromParsed, dedupeUsage, finalizeDocument, projectEntries, DSH_FORMAT_BASIS } from "../normalized.js";
+import { computeStats, createDocumentBuilder, documentFromParsed, dedupeUsage, finalizeDocument, projectEntries, filterDocumentRole, tailDocument, DSH_FORMAT_BASIS } from "../normalized.js";
 import type { TimelineEntry, UsageRecord } from "../types.js";
 
 const usage = (id: string, metrics: UsageRecord["metrics"], extra: Partial<UsageRecord> = {}): UsageRecord =>
@@ -34,6 +34,59 @@ describe("unified session envelopes", () => {
     expect(doc.blocks[0].native).toBeDefined();
     expect(JSON.stringify(projectEntries(doc))).not.toContain("not searchable");
     expect(doc.events![1].type).toBe("usage/record");
+  });
+});
+
+describe("tail document views", () => {
+  const source = () => finalizeDocument(documentFromParsed({
+    agent: "codex", id: "s", path: "/synthetic",
+    identity: { role: "main", raw: { hidden: "identity-secret" } },
+    entries: [
+      { index: 0, role: "user", kind: "message", text: "first", data: { native: "old-native" } },
+      { index: 1, role: "tool", kind: "tool", text: "tool" },
+      { index: 2, role: "user", kind: "message", text: "last", data: { native: "last-native" } },
+    ],
+  }, { usage: [usage("u", { inputTokens: 1 }, { raw: { opaque: "usage-secret" },
+    context: { raw: { opaque: "context-secret" } }, rateLimit: { raw: { opaque: "quota-secret" } } })] }));
+
+  it("keeps blocks, events and entries aligned without opaque content or mutation", () => {
+    const original = source();
+    const reduced = tailDocument(original, 1);
+    expect(projectEntries(reduced)).toEqual([{ index: 2, role: "user", kind: "message", text: "last" }]);
+    expect(reduced.blocks).toHaveLength(1);
+    expect(reduced.events!.filter(event => event.type === "message/append")).toHaveLength(1);
+    expect(reduced.view).toEqual({ tail: 1, nativeContent: "omitted" });
+    expect(JSON.stringify(reduced)).not.toMatch(/old-native|last-native|identity-secret|usage-secret|context-secret|quota-secret/);
+    expect(JSON.stringify(original)).toContain("last-native");
+    expect(projectEntries(original)).toHaveLength(3);
+    expect(reduced.usage[0].metrics).toEqual({ inputTokens: 1 });
+  });
+
+  it("applies after role filtering and preserves original timeline coordinates", () => {
+    const reduced = tailDocument(filterDocumentRole(source(), "user"), 1);
+    expect(reduced.view).toEqual({ role: "user", tail: 1, nativeContent: "omitted" });
+    expect(projectEntries(reduced).map(entry => entry.index)).toEqual([2]);
+    expect(projectEntries(tailDocument(source(), 0))).toEqual([]);
+    expect(projectEntries(tailDocument(source(), 100))).toHaveLength(3);
+  });
+
+  it("omits opaque data before finalization can promote it back into native", () => {
+    const builder = createDocumentBuilder({ agent: "claude", id: "s", path: "/synthetic" });
+    builder.addBlock({ type: "text", role: "user", kind: "text", text: "visible",
+      data: { native: "OPAQUE_NATIVE", nativeBlocks: "OPAQUE_BLOCKS", blocks: "OPAQUE_BLOCKS2", rawSource: "OPAQUE_SOURCE", usage: "OPAQUE_USAGE", visible: true } });
+    const staging = builder.build();
+    for (const reduced of [tailDocument(staging, 1), filterDocumentRole(staging, "user")]) {
+      expect(reduced.view?.nativeContent).toBe("omitted");
+      expect(JSON.stringify(reduced)).not.toContain("OPAQUE_");
+      expect(projectEntries(reduced)[0]?.data).toEqual({ visible: true });
+    }
+    expect(staging.blocks[0]?.data?.native).toBe("OPAQUE_NATIVE");
+  });
+
+  it("rejects invalid numeric counts", () => {
+    for (const value of [-1, 0.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => tailDocument(source(), value)).toThrow(/non-negative safe integer/);
+    }
   });
 });
 

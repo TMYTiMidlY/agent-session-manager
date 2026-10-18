@@ -77,6 +77,13 @@ export function projectEntries(document: SessionDocument): TimelineEntry[] {
   return blocks.map((block, index) => entryFromBlock(block, block.timelineIndex ?? index));
 }
 
+/** Remove opaque carriers even from adapter-staging documents not finalized yet. */
+function withoutNative(block: MessageBlock, index: number): MessageBlock {
+  const { native: _native, nativeBlocks: _nativeBlocks, blocks: _blocks, rawSource: _rawSource, usage: _usage, ...visibleData } = block.data ?? {};
+  return { ...block, timelineIndex: block.timelineIndex ?? index, native: undefined,
+    data: Object.keys(visibleData).length ? visibleData : undefined };
+}
+
 /** Filter all transcript carriers together; do not leak excluded roles through raw mixed-role blocks. */
 export function filterDocumentRole(document: SessionDocument, role: TimelineRole): SessionDocument {
   const blocks = document.events
@@ -85,7 +92,27 @@ export function filterDocumentRole(document: SessionDocument, role: TimelineRole
     ...document, view: { role, nativeContent: "omitted" },
     ref: { ...document.ref, identity: document.ref.identity ? { ...document.ref.identity, raw: undefined } : undefined },
     identity: { ...document.identity, raw: undefined },
-    blocks: blocks.flatMap((block, index) => block.role === role ? [{ ...block, timelineIndex: block.timelineIndex ?? index, native: undefined }] : []),
+    blocks: blocks.flatMap((block, index) => block.role === role ? [withoutNative(block, index)] : []),
+    usage: document.usage.map(usage => ({ ...usage, raw: undefined,
+      context: usage.context ? { ...usage.context, raw: undefined } : undefined,
+      rateLimit: usage.rateLimit ? { ...usage.rateLimit, raw: undefined } : undefined,
+    })),
+  };
+  return finalizeDocument(filtered);
+}
+
+/** Take the last normalized blocks, preserving original indices and omitting opaque carriers. */
+export function tailDocument(document: SessionDocument, tail: number): SessionDocument {
+  if (!Number.isSafeInteger(tail) || tail < 0) throw new RangeError("tail must be a non-negative safe integer");
+  const blocks = document.events
+    ? document.events.flatMap(event => event.type === "message/append" ? [event.data.block] : []) : document.blocks;
+  const indexed = blocks.map(withoutNative);
+  const filtered: SessionDocument = {
+    ...document, view: { ...document.view, tail, nativeContent: "omitted" },
+    ref: { ...document.ref, identity: document.ref.identity ? { ...document.ref.identity, raw: undefined } : undefined },
+    identity: { ...document.identity, raw: undefined },
+    blocks: tail === 0 ? [] : indexed.slice(-tail),
+    // Usage remains session-wide, as with role filtering; do not pretend it belongs to the selected messages.
     usage: document.usage.map(usage => ({ ...usage, raw: undefined,
       context: usage.context ? { ...usage.context, raw: undefined } : undefined,
       rateLimit: usage.rateLimit ? { ...usage.rateLimit, raw: undefined } : undefined,

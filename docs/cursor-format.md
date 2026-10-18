@@ -18,6 +18,19 @@ blob id 为原始字节的 SHA-256。已覆盖两种 payload：完整 AI SDK 风
 - 缺少逐消息时间戳时不使用会话创建时间、文件 mtime 或时间估计填补。`lastUsedModel` 只代表会话 metadata，不绑定到每条历史响应。
 - 这是只读归档适配，不调用 Cursor CLI，不触发 resume，不生成可恢复的原生会话。
 
+## 诊断字段：消息未知与信封未解释分开
+
+`ParseDiagnostics` 的通用 `unknown` / `unknownTypes` 保持消息或内容层面的口径，Cursor 不再向其中混入 `proto-field:N`：
+
+- `unknown`：未知消息角色、未知内容块（包括非对象 part）及不透明 payload 的出现次数；一个消息可以贡献多个未知 part，不是未知类型种数，也不是未验证 protobuf 字段数。
+- `unknownTypes`：上述未知项的排序去重类型样本，如 `message-role:future-role`、`part:future-part`、`payload:opaque`；最多 10 种，超出时 `unknownTypesTruncated=true`。
+- `unparsedEnvelopeFields`：当前 `latestRootBlobId` 可达链内，已经完整扫描到但未解释语义的 protobuf 字段**出现次数**。同一字段重复出现也逐次计数，包括正常但未经验证的 field 5；这不是未知消息数。
+- `unparsedEnvelopeTypes`：这些信封字段的排序去重类型样本，如 `proto-field:5`、`proto-field:7`；最多 10 种，超出时 `unparsedEnvelopeTypesTruncated=true`，总次数不截断。
+
+新增的三个信封诊断字段在通用接口上可选，其他适配器无须提供；Cursor 始终提供计数和样本数组（包括只有 metadata 时的 `0` / `[]`），截断标记只在截断时出现。原有通用字段不改名，也不新增 `unknownRecords` 别名。`handled` / `ignored` 沿用 blob 处理口径，和 part 级 `unknown` 不是互斥分桶，不能相加推算消息总数。
+
+只有当前可达链中完整读出的字段参与信封计数；不可达旧分支不计入。损坏 wire 数据、groups 导致未扫描的余部、非法 field 4 JSON 等仍以原有 `issues` 单独报告，计数不意味着这些余部已被识别。`unknown=0, unknownTypes=[]` 可以与非零 `unparsedEnvelopeFields` 并存：它只表示未见未知消息项，**不**表示闭源格式全部解析或用量完整。field 5 仍产生 `cursor-f5-usage-unverified`，usage ledger 保持空、usage 统计保持 unavailable/incomplete，`source.lossy` 和只读损失警告保留。
+
 ## 运行时与测试
 
 Node 通过 `node:sqlite` 的 `mode=ro`、`readOnly` 和 `query_only` 读取；Bun 使用 `bun:sqlite` 的 `readonly` 和 `query_only`。缺少能力与源数据库损坏分别报错。派生 search 缓存不以 SQLite 主文件 stat 推断内容不变，避免遗漏 WAL 新消息。

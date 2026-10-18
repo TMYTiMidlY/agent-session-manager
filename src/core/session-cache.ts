@@ -10,7 +10,7 @@ import { BLOOM_BYTES, bloomMayContain, buildSearchBloom } from "./search-bloom.j
 import type { ParsedSession, ParseDiagnostics, SessionRef } from "./types.js";
 
 // Bump when transcript/search semantics change, not just the on-disk schema.
-export const SEARCH_CACHE_VERSION = "search-text-2";
+export const SEARCH_CACHE_VERSION = "search-text-3"; // Retain Claude attribution flags in canonical entry metadata.
 const compress = promisify(gzip);
 const decompress = promisify(gunzip);
 const MAX_BYTES = 128 * 1024 * 1024;

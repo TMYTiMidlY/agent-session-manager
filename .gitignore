@@ -5,6 +5,7 @@ secrets.env
 backup.log
 
 node_modules/
+.pnpm-store/
 dist/
 coverage/
 .session-recall/

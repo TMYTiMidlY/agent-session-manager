@@ -285,7 +285,7 @@ interface BlobClassification {
   cwd?: string;
   groupTruncated: boolean;
   malformed: boolean;
-  unknownFields: number[];
+  unparsedEnvelopeFields: number[];
   f5Count: number;
   invalidEmbeddedJson?: boolean;
 }
@@ -383,17 +383,20 @@ function parseFullJson(bytes: Uint8Array): Record<string, unknown> | undefined {
 
 function classifyBlob(data: Uint8Array): BlobClassification {
   if (data.length === 0) {
-    return { kind: "empty", parents: [], groupTruncated: false, malformed: false, unknownFields: [], f5Count: 0 };
+    return { kind: "empty", parents: [], groupTruncated: false, malformed: false, unparsedEnvelopeFields: [], f5Count: 0 };
   }
   if (data[0] === 0x7b /* '{' */) {
     const message = parseFullJson(data);
     return message !== undefined
-      ? { kind: "json", message, parents: [], groupTruncated: false, malformed: false, unknownFields: [], f5Count: 0 }
-      : { kind: "bad-json", parents: [], groupTruncated: false, malformed: false, unknownFields: [], f5Count: 0 };
+      ? { kind: "json", message, parents: [], groupTruncated: false, malformed: false, unparsedEnvelopeFields: [], f5Count: 0 }
+      : { kind: "bad-json", parents: [], groupTruncated: false, malformed: false, unparsedEnvelopeFields: [], f5Count: 0 };
   }
   const { fields, group, malformed } = scanEnvelope(data);
   const parents: string[] = [];
-  const unknownFields = new Set<number>();
+  // Preserve occurrences: repeated unverified fields count separately, while
+  // public type samples are deduplicated later. Scanned wire bytes are not
+  // evidence that the field's closed-format semantics have been interpreted.
+  const unparsedEnvelopeFields: number[] = [];
   let message: Record<string, unknown> | undefined;
   let cwd: string | undefined;
   let f5Count = 0;
@@ -420,14 +423,14 @@ function classifyBlob(data: Uint8Array): BlobClassification {
       continue;
     }
     if (field.field === 5) f5Count += 1;
-    unknownFields.add(field.field);
+    unparsedEnvelopeFields.push(field.field);
   }
   // A payload with no recognized structure that also hit a wire-format
   // violation is opaque (possibly encrypted under meta.blobEncryptionKey).
   if (parents.length === 0 && message === undefined && cwd === undefined && malformed) {
-    return { kind: "unknown", parents, groupTruncated: group, malformed, unknownFields: [...unknownFields], f5Count, invalidEmbeddedJson };
+    return { kind: "unknown", parents, groupTruncated: group, malformed, unparsedEnvelopeFields, f5Count, invalidEmbeddedJson };
   }
-  return { kind: "envelope", message, parents, cwd, groupTruncated: group, malformed, unknownFields: [...unknownFields], f5Count, invalidEmbeddedJson };
+  return { kind: "envelope", message, parents, cwd, groupTruncated: group, malformed, unparsedEnvelopeFields, f5Count, invalidEmbeddedJson };
 }
 
 // ---------------------------------------------------------------------------
@@ -997,7 +1000,7 @@ export async function parseCursor(ref: SessionRef): Promise<ParsedSession> {
       entries: projectEntries(document),
       document,
       stats: computeStats(document),
-      diagnostics: { handled: 0, ignored: 0, unknown: 0, unknownTypes: [] },
+      diagnostics: { handled: 0, ignored: 0, unknown: 0, unknownTypes: [], unparsedEnvelopeFields: 0, unparsedEnvelopeTypes: [] },
     };
   }
 
@@ -1007,6 +1010,8 @@ export async function parseCursor(ref: SessionRef): Promise<ParsedSession> {
     }
     const issues = new IssueLog();
     const stats: EmitStats = { handled: 0, ignored: 0, unknown: 0, unknownTypes: new Set() };
+    let unparsedEnvelopeFields = 0;
+    const unparsedEnvelopeTypes = new Set<string>();
 
     const decoded = decodeStoreMeta(db);
     if (decoded.meta === undefined) {
@@ -1074,7 +1079,8 @@ export async function parseCursor(ref: SessionRef): Promise<ParsedSession> {
       if (entry === undefined) continue;
       const { rec, cls } = entry;
       if (cls.cwd !== undefined && chainCwd === undefined) chainCwd = cls.cwd;
-      for (const field of cls.unknownFields) stats.unknownTypes.add(`proto-field:${field}`);
+      unparsedEnvelopeFields += cls.unparsedEnvelopeFields.length;
+      for (const field of cls.unparsedEnvelopeFields) unparsedEnvelopeTypes.add(`proto-field:${field}`);
       if (cls.groupTruncated) {
         issues.add("cursor-proto-group", "legacy group field stopped envelope scan; leading fields kept", rec.id.slice(0, 12));
       }
@@ -1133,6 +1139,7 @@ export async function parseCursor(ref: SessionRef): Promise<ParsedSession> {
 
     const document = emitter.build();
     const unknownTypes = [...stats.unknownTypes].sort();
+    const envelopeTypes = [...unparsedEnvelopeTypes].sort();
     return {
       ...parsedRef,
       entries: projectEntries(document),
@@ -1146,6 +1153,9 @@ export async function parseCursor(ref: SessionRef): Promise<ParsedSession> {
         ...(unknownTypes.length > MAX_UNKNOWN_TYPE_SAMPLES
           ? { unknownTypesTruncated: true, unknownTypes: unknownTypes.slice(0, MAX_UNKNOWN_TYPE_SAMPLES) }
           : {}),
+        unparsedEnvelopeFields,
+        unparsedEnvelopeTypes: envelopeTypes.slice(0, MAX_UNKNOWN_TYPE_SAMPLES),
+        ...(envelopeTypes.length > MAX_UNKNOWN_TYPE_SAMPLES ? { unparsedEnvelopeTypesTruncated: true } : {}),
         ...(typeof sidecar?.schemaVersion === "number" ? { formatVersion: sidecar.schemaVersion } : {}),
         issues: issues.list(),
       },

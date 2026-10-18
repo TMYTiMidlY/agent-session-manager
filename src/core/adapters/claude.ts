@@ -192,6 +192,8 @@ export async function parseClaude(ref: SessionRef): Promise<ParsedSession> {
                 // original row role so the boundary stays auditable.
                 sourceRole: type,
                 ...(event.isSidechain === true ? { isSidechain: true } : {}),
+                ...(event.isMeta === true ? { isMeta: true } : {}),
+                ...(event.isCompactSummary === true ? { isCompactSummary: true } : {}),
                 ...(native !== undefined ? { native: [native] } : {}),
                 ...(usage && firstEntryOfRow ? { usage } : {}),
               },
@@ -207,7 +209,13 @@ export async function parseClaude(ref: SessionRef): Promise<ParsedSession> {
           text: contentToText(content),
           timestamp,
           rawType: type,
-          ...(usage ? { data: { ...(messageId !== undefined ? { messageId } : {}), ...(model !== undefined ? { model } : {}), usage } } : {}),
+          ...(usage || event.isMeta === true || event.isCompactSummary === true || event.isSidechain === true ? { data: {
+            ...(messageId !== undefined ? { messageId } : {}), ...(model !== undefined ? { model } : {}),
+            ...(usage ? { usage } : {}),
+            ...(event.isMeta === true ? { isMeta: true } : {}),
+            ...(event.isCompactSummary === true ? { isCompactSummary: true } : {}),
+            ...(event.isSidechain === true ? { isSidechain: true } : {}),
+          } } : {}),
         });
       }
       diagnosticCounts.handled++;

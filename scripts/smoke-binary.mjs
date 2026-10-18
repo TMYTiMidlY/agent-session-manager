@@ -42,6 +42,16 @@ try {
   const parsed = JSON.parse(success(["show", "--file", path, "-f", "json"]).stdout);
   assert.equal(parsed.entries.length, 2);
   assert.equal(parsed.entries[1].text, "smoke final answer");
+  const recent = JSON.parse(success(["show", "--file", path, "--tail", "1", "--summary", "-f", "json"]).stdout);
+  assert.equal(recent.entries.length, 1);
+  assert.equal(recent.entries[0].index, 1);
+  assert.equal(recent.document.blocks.length, 1);
+  assert.equal(recent.document.view.tail, 1);
+  assert.equal(recent.recoverySummary.latestDirectUserRequest.text.text, parsed.entries[0].text);
+  assert.equal(recent.recoverySummary.nativeResume, false);
+  const empty = JSON.parse(success(["show", "--file", path, "--tail", "0", "-f", "json"]).stdout);
+  assert.deepEqual(empty.entries, []);
+  assert.notEqual(run(["show", "--file", path, "--tail", "-1"]).status, 0);
   // Negative prefilter correctness and invalidation under the actual runtime.
   assert.equal(success(["search", "cache question", "--file", path]).stdout, "");
   const previous = await stat(path);

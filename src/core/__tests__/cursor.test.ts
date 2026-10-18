@@ -325,6 +325,12 @@ describe("Cursor store parsing (JSON + protobuf trunk)", () => {
     expect(session.document?.usage).toEqual([]);
     expect(session.stats?.totals).toEqual({});
     expect(session.stats?.calls).toBe(0);
+    expect(session.stats?.incomplete).toBe(true);
+    expect(session.stats?.accounting).toBe("unavailable");
+    expect(session.diagnostics?.unknown).toBe(0);
+    expect(session.diagnostics?.unknownTypes).toEqual([]);
+    expect(session.diagnostics?.unparsedEnvelopeFields).toBe(1);
+    expect(session.diagnostics?.unparsedEnvelopeTypes).toEqual(["proto-field:5"]);
     const issueCodes = (session.diagnostics?.issues ?? []).map((issue) => issue.code);
     expect(issueCodes).toContain("cursor-f5-usage-unverified");
     expect(issueCodes).toContain("cursor-unreachable-blobs");
@@ -332,6 +338,79 @@ describe("Cursor store parsing (JSON + protobuf trunk)", () => {
     expect(session.diagnostics?.handled).toBe(4); // system, user, assistant, tool blobs
     expect(session.diagnostics?.ignored).toBeGreaterThanOrEqual(4); // root + usage carriers + 2 unreachable
     expect(store?.rootId).toBe(rootId);
+  });
+
+  it("counts unverified envelope occurrences separately from known messages, excluding unreachable branches", async () => {
+    const scratch = await mkdtemp(join(process.cwd(), ".core-cursor-"));
+    scratchDirectories.push(scratch);
+
+    const secret = "uninterpreted-envelope-payload";
+    const known = envelope({
+      message: { role: "assistant", content: "known answer" },
+      usage: { input: 1234, max: 256000 },
+      unknownField: { field: 7, bytes: secret },
+      trailing: lenDelim(7, secret), // repeated field occurrences are not deduplicated in the count
+    });
+    const unreachable = envelope({ unknownField: { field: 42, bytes: "dead branch" } });
+    await createSession(scratch, {
+      metaJson: { schemaVersion: 1 },
+      store: { meta: {}, blobs: [{ data: known }, { data: unreachable }], root: blobId(known) },
+    });
+
+    const session = await parseCursor((await discoverCursor(scratch))[0]);
+    expect(session.entries.map((entry) => entry.text)).toEqual(["known answer"]);
+    expect(session.diagnostics).toMatchObject({
+      handled: 1, ignored: 1, unknown: 0, unknownTypes: [],
+      unparsedEnvelopeFields: 3, unparsedEnvelopeTypes: ["proto-field:5", "proto-field:7"],
+    });
+    expect(session.diagnostics?.unparsedEnvelopeTypesTruncated).toBeUndefined();
+    expect(session.document?.usage).toEqual([]);
+    expect(session.stats).toMatchObject({ totals: {}, incomplete: true, accounting: "unavailable" });
+    expect(session.source).toMatchObject({ lossy: true });
+    expect(session.source?.warning).toContain("closed format");
+    expect(session.source?.warning).toContain("read-only");
+    expect(session.diagnostics?.issues?.map((issue) => issue.code)).toContain("cursor-f5-usage-unverified");
+    expect(JSON.stringify(session)).not.toContain(secret);
+  });
+
+  it("keeps unknown messages and content samples out of envelope diagnostics", async () => {
+    const scratch = await mkdtemp(join(process.cwd(), ".core-cursor-"));
+    scratchDirectories.push(scratch);
+
+    const unknownRole = jsonBlob({ role: "future-role", content: "must not become visible" });
+    const unknownContent = jsonBlob({ role: "assistant", content: [{ type: "future-part", payload: { hidden: true } }, null] });
+    const root = envelope({ parents: [blobId(unknownRole), blobId(unknownContent)] });
+    await createSession(scratch, {
+      store: { meta: {}, blobs: [{ data: unknownRole }, { data: unknownContent }, { data: root }] },
+    });
+
+    const session = await parseCursor((await discoverCursor(scratch))[0]);
+    expect(session.diagnostics).toMatchObject({
+      unknown: 3,
+      unknownTypes: ["message-role:future-role", "part:future-part", "part:non-object"],
+      unparsedEnvelopeFields: 0, unparsedEnvelopeTypes: [],
+    });
+    expect(session.entries.map((entry) => [entry.kind, entry.text])).toEqual([["unknown", ""]]);
+    expect(session.diagnostics?.issues?.map((issue) => issue.code)).toContain("cursor-message-role");
+  });
+
+  it("bounds envelope type samples independently of message unknown types without undercounting fields", async () => {
+    const scratch = await mkdtemp(join(process.cwd(), ".core-cursor-"));
+    scratchDirectories.push(scratch);
+
+    const root = envelope({
+      message: { role: "assistant", content: [{ type: "future-part" }] },
+      trailing: Array.from({ length: 12 }, (_, index) => lenDelim(20 + index, "opaque")).flat(),
+    });
+    await createSession(scratch, { store: { meta: {}, blobs: [{ data: root }] } });
+    const session = await parseCursor((await discoverCursor(scratch))[0]);
+    expect(session.diagnostics).toMatchObject({
+      unknown: 1, unknownTypes: ["part:future-part"],
+      unparsedEnvelopeFields: 12,
+      unparsedEnvelopeTypes: Array.from({ length: 10 }, (_, index) => `proto-field:${20 + index}`),
+      unparsedEnvelopeTypesTruncated: true,
+    });
+    expect(session.diagnostics?.unknownTypesTruncated).toBeUndefined();
   });
 
   it("supports cumulative-list roots (single envelope referencing ordered JSON blobs)", async () => {
@@ -554,7 +633,10 @@ describe("Cursor store parsing (JSON + protobuf trunk)", () => {
     const codes = (session.diagnostics?.issues ?? []).map((i) => i.code);
     expect(codes).toContain("cursor-proto-group");
     expect(codes).toContain("cursor-proto-malformed");
-    expect(session.diagnostics?.unknownTypes).toContain("proto-field:7");
+    expect(session.diagnostics?.unknown).toBe(0);
+    expect(session.diagnostics?.unknownTypes).toEqual([]);
+    expect(session.diagnostics?.unparsedEnvelopeFields).toBe(1);
+    expect(session.diagnostics?.unparsedEnvelopeTypes).toEqual(["proto-field:7"]);
   });
 
   it("parses metadata-only sessions without a transcript and treats failures as tool results", async () => {
@@ -571,6 +653,9 @@ describe("Cursor store parsing (JSON + protobuf trunk)", () => {
     expect(session.cwd).toBe("/tmp/never");
     expect(session.source?.warning).toContain("no store.db");
     expect(session.document?.blocks).toEqual([]);
+    expect(session.diagnostics).toMatchObject({
+      unknown: 0, unknownTypes: [], unparsedEnvelopeFields: 0, unparsedEnvelopeTypes: [],
+    });
 
     // tool-result carrying an error object maps to a failure result.
     const failure = jsonBlob({
