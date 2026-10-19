@@ -148,6 +148,14 @@ asmgr list --agent all
 
 </details>
 
+## Agent skill
+
+本仓自带使用 skill：[`.agents/skills/asmgr/`](.agents/skills/asmgr/SKILL.md) 教 AI agent 何时、怎样用 `asmgr`——确认会话来源、按轮次/角色过滤、原样输出与导出，以及只读边界和各来源的保真度限制。在仓库内工作时，支持 `.agents/skills/` 项目级发现的 agent 工具会自动收录；其他场景把它软链进个人目录即可：
+
+```bash
+ln -s /path/to/agent-session-manager/.agents/skills/asmgr ~/.agents/skills/asmgr
+```
+
 ## 首次运行
 
 1. 按上面任一方式装好 `asmgr`。
