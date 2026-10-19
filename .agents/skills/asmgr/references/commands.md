@@ -61,6 +61,8 @@ asmgr html <id> -a <agent> -s summary.html -o report.html   # 顶部钉一份 HT
 asmgr show 'https://chatgpt.com/share/<id>' -f dialogue     # 分享 URL 直接读，不落盘
 ```
 
+`-s/--summary` 片段按原样嵌入、不做转换；`--summary-format html|markdown` 显式声明片段格式（html 默认 `html`，md 默认 `markdown`），扩展名与实际格式不符时给警告。
+
 ## 会话图与额度：tree、quota
 
 ```bash
@@ -75,7 +77,7 @@ asmgr quota -a codex --timezone Asia/Shanghai -f json   # Codex primary/secondar
 ```bash
 asmgr import 'https://chatgpt.com/share/<conversation-id>'   # 抓取公开分享到托管目录
 asmgr backup run --dry-run                                   # restic 加密增量备份（源码 checkout 安装）
-asmgr backup cache latest --target ~/.cache/asmgr/restic-cache
+asmgr backup cache latest --host <host> --target ~/.cache/asmgr/restic-cache  # --host 限定快照来源主机
 ```
 
 导入快照权限 0600，目标已存在时需 `--force`；私有 `/c/...` 地址栏会话拒绝抓取并提示先在 ChatGPT 里点"分享"。npm 安装暂不包含备份运行时，需源码 checkout。

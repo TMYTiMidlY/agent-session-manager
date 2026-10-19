@@ -156,6 +156,8 @@ asmgr list --agent all
 ln -s /path/to/agent-session-manager/.agents/skills/asmgr ~/.agents/skills/asmgr
 ```
 
+**README、skill 与 CLI 代码描述同一份行为**：改选项或语义的提交同步更新两处文档；`src/cli/docs-sync.test.ts` 在 CI 里校验文档中出现的长选项与 commander 注册的选项一致（README 中引用外部命令的示例选项除外）。
+
 ## 首次运行
 
 1. 按上面任一方式装好 `asmgr`。
@@ -370,6 +372,8 @@ asmgr html <session-id> -s agent-summary.html -o report.html   # 顶部钉一份
 asmgr html 'https://chatgpt.com/share/<id>' -o report.html
 ```
 
+`-s/--summary` 的片段按原样嵌入、不做转换；扩展名与实际格式不符时给警告。`--summary-format html|markdown` 显式声明片段格式（html 默认 `html`，md 默认 `markdown`），两种格式不混用同一片段。
+
 <details>
 <summary>HTML 与 Copilot CLI `/share html` 的差异</summary>
 
@@ -417,6 +421,7 @@ asmgr backup cache latest --target ~/.cache/asmgr/restic-cache
 
 `backup cache` 把指定快照恢复到独立缓存，明确拒绝 home 目录及 live 的
 `~/.copilot`、`~/.claude`、`~/.codex`，也拒绝 asmgr 托管的 ChatGPT 导入目录。
+多主机仓库可用 `--host <host>` 限定取自哪台主机的快照。
 缓存用于 `list/search/show/html/md --file`，不等于把会话恢复成原 agent 可以
 `--resume` 的状态。
 
