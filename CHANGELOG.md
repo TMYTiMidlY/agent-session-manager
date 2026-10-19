@@ -1,3 +1,10 @@
+# [0.7.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.6.1...v0.7.0) (2026-10-19)
+
+
+### Features
+
+* add show --turn selection and --format plain verbatim output ([d2feca6](https://github.com/TMYTiMidlY/agent-session-manager/commit/d2feca662ca7a5b7e07a7cddb15d9142b57c7788))
+
 ## [0.6.1](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.6.0...v0.6.1) (2026-10-18)
 
 
