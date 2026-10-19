@@ -11,6 +11,11 @@ export function nonNegativeInteger(value: string): number {
   return Number(value);
 }
 
+export function positiveInteger(value: string): number {
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new InvalidArgumentError("must be a positive integer");
+  return Number(value);
+}
+
 export function searchConcurrency(value: string): number {
   const count = nonNegativeInteger(value);
   if (count < 1 || count > 32) throw new InvalidArgumentError("must be between 1 and 32");

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseCopilot } from "../adapters/copilot.js";
-import { searchRefs, sessionToDialogue, sessionToText, timelineEntrySearchText } from "../index.js";
+import { searchRefs, sessionToDialogue, sessionToPlain, sessionToText, timelineEntrySearchText } from "../index.js";
 import type { ParsedSession } from "../types.js";
 
 const fixtures = resolve(fileURLToPath(new URL("../../../fixtures", import.meta.url)));
@@ -128,6 +128,40 @@ describe("sessionToText", () => {
     expect(sessionToText(lossy)).toContain("交互式用户决策与工具条目在此模式下不可恢复");
     expect(sessionToDialogue(lossy)).toContain("交互式用户决策与工具条目在此模式下不可恢复");
     expect(sessionToText(canonical)).not.toContain("db.turns");
+  });
+});
+
+describe("sessionToPlain", () => {
+  it("renders bodies only — no header, indices, timestamps, or titles", () => {
+    const session: ParsedSession = {
+      agent: "copilot",
+      id: "plain",
+      path: "/dev/null",
+      startedAt: "2026-07-22T00:00:00.000Z",
+      entries: [
+        { index: 0, role: "user", kind: "message", text: "line one\nline two", timestamp: "2026-07-22T00:00:01.000Z" },
+        { index: 1, role: "assistant", kind: "message", text: "reply body", title: "SHOULD NOT RENDER" },
+      ],
+    };
+    expect(sessionToPlain(session)).toBe("line one\nline two\n\nreply body\n");
+    expect(sessionToPlain(session)).not.toContain("session:");
+    expect(sessionToPlain(session)).not.toContain("##");
+    expect(sessionToPlain(session)).not.toContain("SHOULD NOT RENDER");
+  });
+
+  it("keeps the exact entry subset it is given and renders decision bodies", () => {
+    const session: ParsedSession = {
+      agent: "copilot",
+      id: "plain-subset",
+      path: "/dev/null",
+      entries: [
+        { index: 0, role: "user", kind: "message", text: "first" },
+        { index: 1, role: "user", kind: "decision", title: "Which database?", text: "PostgreSQL" },
+        { index: 2, role: "assistant", kind: "message", text: "ok" },
+      ],
+    };
+    expect(sessionToPlain(session, session.entries.slice(0, 2))).toBe("first\n\nQ: Which database?\nA: PostgreSQL\n");
+    expect(sessionToPlain(session, [])).toBe("");
   });
 });
 

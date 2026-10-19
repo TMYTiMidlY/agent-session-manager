@@ -21,7 +21,7 @@ import { searchRefs, type SearchOptions } from "./search.js";
 import { enrichSessionRefs, sortSessionRefs } from "./session-metadata.js";
 import { mapConcurrent } from "./concurrency.js";
 export { parseSession, searchRefs };
-export { computeStats, createDocumentBuilder, documentFromParsed, projectEntries, DSH_FORMAT_BASIS } from "./normalized.js";
+export { computeStats, createDocumentBuilder, documentFromParsed, filterDocumentRole, filterDocumentTurn, projectEntries, DSH_FORMAT_BASIS } from "./normalized.js";
 export { validateTimeZone, zonedTime, hourBucket } from "./timezone.js";
 export type { SearchOptions, SearchDiagnostic } from "./search.js";
 export { sortSessionRefs, filterSessionCwd } from "./session-metadata.js";
@@ -286,6 +286,94 @@ export function sessionToDialogue(session: ParsedSession): string {
       || entry.kind === "compaction"
       || entry.kind === "compacted"));
   return renderSessionText(session, entries, false);
+}
+
+/** Bodies only — no session header, entry indices, timestamps, or titles. */
+export function sessionToPlain(session: ParsedSession, entries: TimelineEntry[] = session.entries): string {
+  const bodies = entries.map((entry) => timelineEntryToText(entry));
+  return bodies.length ? `${bodies.join("\n\n")}\n` : "";
+}
+
+/**
+ * Codex records these as user-role response items, but they are harness
+ * injections, not human prompts. Verified against real rollouts: project
+ * instructions at session start, skill bodies loaded mid-session, and
+ * goal-continuation context wrapped in <codex_internal_context ...>.
+ */
+const CODEX_INJECTED_USER_PREFIXES = [
+  "# AGENTS.md instructions for",
+  "<user_instructions>",
+  "<environment_context>",
+  "<turn_context>",
+  "<codex_internal_context",
+  "<skill>",
+] as const;
+
+/**
+ * True for user-role entries that carry injected context instead of a human
+ * prompt. Claude marks its injections with row flags; DSH keeps named
+ * non-user producers out of user entries already, and Copilot/ChatGPT user
+ * messages are human input by construction.
+ */
+export function isInjectedUserContext(agent: AgentKind, entry: TimelineEntry): boolean {
+  if (entry.role !== "user") return false;
+  if (agent === "codex") {
+    const text = entry.text.trimStart();
+    return CODEX_INJECTED_USER_PREFIXES.some((prefix) => text.startsWith(prefix));
+  }
+  if (agent === "claude") {
+    return entry.data?.isMeta === true || entry.data?.isCompactSummary === true;
+  }
+  return false;
+}
+
+/** A human prompt: the entry that opens a conversation turn. */
+export function isHumanPrompt(agent: AgentKind, entry: TimelineEntry): boolean {
+  if (entry.role !== "user") return false;
+  // Decisions/answers (ask_user and friends) stay inside the turn that asked.
+  if (entry.kind !== "message" && entry.kind !== "text") return false;
+  if (!entry.text.trim()) return false;
+  return !isInjectedUserContext(agent, entry);
+}
+
+export interface TurnWindow {
+  /** 1-based turn number. */
+  turn: number;
+  /** Human turns counted over the full timeline. */
+  totalTurns: number;
+  /** Inclusive first timeline index of the window. */
+  start: number;
+  /** Timeline index one past the window's last entry (exclusive). */
+  end: number;
+}
+
+/**
+ * Locate the Nth human turn over the FULL timeline (before any --role filter)
+ * so turn numbering stays stable under role filtering.
+ */
+export function turnWindow(agent: AgentKind, entries: TimelineEntry[], turn: number): TurnWindow {
+  if (!Number.isSafeInteger(turn) || turn < 1) throw new RangeError(`turn must be a positive integer, got ${turn}`);
+  const starters = entries.filter((entry) => isHumanPrompt(agent, entry));
+  if (turn > starters.length) {
+    throw new RangeError(`--turn ${turn}: session has ${starters.length} user turn${starters.length === 1 ? "" : "s"}`);
+  }
+  const last = entries.at(-1);
+  return {
+    turn,
+    totalTurns: starters.length,
+    start: starters[turn - 1].index,
+    end: turn < starters.length ? starters[turn].index : (last ? last.index + 1 : 0),
+  };
+}
+
+/** Entries of one turn: the window minus injected-context user entries. */
+export function selectTurnEntries(agent: AgentKind, entries: TimelineEntry[], turn: number): { entries: TimelineEntry[]; window: TurnWindow } {
+  const window = turnWindow(agent, entries, turn);
+  return {
+    entries: entries.filter((entry) =>
+      entry.index >= window.start && entry.index < window.end && !isInjectedUserContext(agent, entry)),
+    window,
+  };
 }
 
 function renderSessionText(session: ParsedSession, entries: TimelineEntry[], includeEntryTitles = true): string {

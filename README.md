@@ -24,6 +24,8 @@ HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主�
 | 在单个会话内搜索 | `asmgr search "关键词" --session <session-id>` |
 | 打印一个会话 | `asmgr show <session-id> --agent claude` |
 | 只看对话主干（跳过工具调用） | `asmgr show <session-id> --format dialogue` |
+| 只取第 N 轮对话（如第一轮） | `asmgr show <session-id> --turn 1` |
+| 原样输出选中正文 | `asmgr show <session-id> --turn 1 --role user --format plain` |
 | 读取最近的规范化条目 | `asmgr show <session-id> --tail 20` |
 | 接续前快速核对原始证据 | `asmgr show <session-id> --summary` |
 | 导入公开 ChatGPT 分享 | `asmgr import 'https://chatgpt.com/share/<id>'` |
@@ -293,12 +295,14 @@ asmgr import 'https://chatgpt.com/share/<conversation-id>'
 
 ### `asmgr show`
 
-以 text、dialogue 或 JSON 打印一个会话：
+以 text、dialogue、plain 或 JSON 打印一个会话：
 
 ```bash
 asmgr show <session-id> --agent codex
 asmgr show <session-id> --agent copilot --format dialogue
 asmgr show <session-id> --agent codex --format json
+asmgr show <session-id> --agent codex --turn 1 --format dialogue
+asmgr show <session-id> --agent codex --turn 1 --role user --format plain
 asmgr show <session-id> --agent cursor --tail 20
 asmgr show <session-id> --agent cursor --summary
 asmgr show <session-id> --agent cursor --summary --tail 10 -f json
@@ -306,6 +310,17 @@ asmgr show 'https://chatgpt.com/share/<id>' --format dialogue
 ```
 
 `--format dialogue` 只保留**用户消息 / 交互式提问与选项 / 用户决策或回答 / 压缩摘要 / 助手回复**，跳过普通工具调用的全部内容与 reasoning。DSH 的 `ask_user_question` 保留题目、全部选项、单/多选信息、选中项和自由回答；Copilot 的 `ask_user` 保留题目、全部候选项及回答。工具噪音被剔掉后，每条用户 prompt 直接紧跟回答它的助手回复，prompt↔回复的对应关系一目了然——适合会话复盘、交接和收尾盘点等需要通读对话主干的场景。`--format text` 则含完整工具参数+结果、子代理/技能/计划/压缩统计。
+
+#### 轮次选择与正文原样输出
+
+`--turn <n>` 只选第 **n** 轮人类输入：从该会话第 n 条人类 prompt 起，到下一条人类 prompt 之前。**首轮 ≠ 第一条 user 消息**——AGENTS.md 指令、`<skill>` 注入、`<environment_context>`、`<codex_internal_context>`（goal 续跑上下文）等注入上下文（Codex 按已知前缀识别）、`isMeta` / 压缩摘要行（Claude 按行标记识别）不会开启轮次，也不会出现在所选轮次里；DSH/Copilot/ChatGPT 的 user 消息本就只含人类输入。轮次按完整 timeline 计数，先于 `--role` / `--tail` 生效，加 `--role user` 不会改变轮号；ask_user 的决策与回答属于提问所在轮次，不另开新轮。`--turn` 不合并 guardian 子线程（它们有独立 timeline）；JSON 的 `entries`、`document.blocks` 与消息事件同步裁剪，`document.view` 标明 `turn`，且不经原生 opaque 内容泄漏被排除的消息。注入上下文只是不参与轮次——不带 `--turn` 的完整 text/JSON 输出仍照常保留它们。轮次超出范围会明确报错（`session has N user turns`），不会静默输出空结果。
+
+`--format plain` 输出**选中的正文本身**：没有 session 头、`## N.` 序号、时间戳或标题；多条正文之间以空行分隔，正文内的空白、换行与代码围栏原样保留——适合“把第一轮用户原话原样交给我”这类场景。来源有损的警告打到 stderr，stdout 保持纯正文。工具条目在 plain 下仍是其参数/结果摘要，通常先配 `--role user` 或 `--turn` 使用；plain 可与 `--tail` 组合，与 `--summary` 互斥（后者是替代渲染）。
+
+```bash
+asmgr show <session-id> --agent codex --turn 1 --format dialogue           # 第一轮对话主干
+asmgr show <session-id> --agent codex --turn 1 --role user --format plain  # 第一轮的用户原话
+```
 
 #### 尾部与接续摘要
 
@@ -332,6 +347,7 @@ Cursor 的 `diagnostics.unknown` / `unknownTypes` 仅描述未知消息、内容
 ```bash
 asmgr show <id> --agent dsh -f dialogue --role user
 asmgr show <id> --agent dsh -f json --role user  # 机器处理建议 JSON
+asmgr show <id> --agent codex --turn 1 --role user -f plain  # 第一轮用户原话，正文原样
 ```
 
 `--role` 同样适用于 text/JSON，保留原 index；dialogue 的角色过滤仍与主干过滤取交集。

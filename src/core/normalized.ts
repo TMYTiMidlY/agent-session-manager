@@ -89,10 +89,32 @@ export function filterDocumentRole(document: SessionDocument, role: TimelineRole
   const blocks = document.events
     ? document.events.flatMap(event => event.type === "message/append" ? [event.data.block] : []) : document.blocks;
   const filtered: SessionDocument = {
-    ...document, view: { role, nativeContent: "omitted" },
+    ...document, view: { ...document.view, role, nativeContent: "omitted" },
     ref: { ...document.ref, identity: document.ref.identity ? { ...document.ref.identity, raw: undefined } : undefined },
     identity: { ...document.identity, raw: undefined },
     blocks: blocks.flatMap((block, index) => block.role === role ? [withoutNative(block, index)] : []),
+    usage: document.usage.map(usage => ({ ...usage, raw: undefined,
+      context: usage.context ? { ...usage.context, raw: undefined } : undefined,
+      rateLimit: usage.rateLimit ? { ...usage.rateLimit, raw: undefined } : undefined,
+    })),
+  };
+  return finalizeDocument(filtered);
+}
+
+/**
+ * Keep only blocks whose original timeline index is in `allowed` — the index
+ * set of a turn window computed from the visible entries projection. Marks the
+ * reduced view so JSON consumers can tell a turn selection from a full read.
+ */
+export function filterDocumentTurn(document: SessionDocument, turn: number, allowed: Set<number>): SessionDocument {
+  const blocks = document.events
+    ? document.events.flatMap(event => event.type === "message/append" ? [event.data.block] : []) : document.blocks;
+  const filtered: SessionDocument = {
+    ...document, view: { ...document.view, turn, nativeContent: "omitted" },
+    ref: { ...document.ref, identity: document.ref.identity ? { ...document.ref.identity, raw: undefined } : undefined },
+    identity: { ...document.identity, raw: undefined },
+    blocks: blocks.flatMap((block, index) => allowed.has(block.timelineIndex ?? index) ? [withoutNative(block, index)] : []),
+    // Usage remains session-wide, as with role filtering; do not pretend it belongs to the selected turn.
     usage: document.usage.map(usage => ({ ...usage, raw: undefined,
       context: usage.context ? { ...usage.context, raw: undefined } : undefined,
       rateLimit: usage.rateLimit ? { ...usage.rateLimit, raw: undefined } : undefined,

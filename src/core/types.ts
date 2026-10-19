@@ -281,8 +281,8 @@ export interface SessionDocument {
   basis?: { harness: "dsh"; formatVersion: 4; commit: string };
   /** Always populated at the parseSession boundary; optional for adapter staging. */
   events?: NormalizedEvent[];
-  /** Explicitly reduced CLI view; opaque carriers are omitted when filtering roles or taking a tail. */
-  view?: { role?: TimelineRole; tail?: number; nativeContent: "omitted" };
+  /** Explicitly reduced CLI view; opaque carriers are omitted when filtering roles, selecting a turn, or taking a tail. */
+  view?: { role?: TimelineRole; turn?: number; tail?: number; nativeContent: "omitted" };
   /** Convenience views of message/append and usage/record event payloads. */
   blocks: MessageBlock[];
   usage: UsageRecord[];
