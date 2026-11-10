@@ -46,8 +46,12 @@ export async function sessionMetadata(ref: SessionRef): Promise<SessionRef> {
       } else if (ref.agent === "claude" && typeof row.cwd === "string") {
         result.cwd ??= row.cwd;
         result.startedAt ??= text(row.timestamp);
+      } else if (ref.agent === "agy" && typeof row.created_at === "string") {
+        result.startedAt ??= row.created_at;
       }
-      if (++sampled >= 50 || (result.cwd && result.startedAt)) break;
+      // AGY rows carry no cwd; the first created_at is all discovery needs,
+      // so stop as soon as startedAt is known instead of scanning 50 rows.
+      if (++sampled >= 50 || (result.cwd && result.startedAt) || (ref.agent === "agy" && result.startedAt)) break;
     }
   } catch {
     // Discovery is not a transcript integrity check.

@@ -1,0 +1,4 @@
+{"display":"/model","timestamp":1762605600000,"workspace":"/home/demo/project","type":"slash_command"}
+{"display":"帮我看一下这个目录里有什么，然后总结 DISPATCH.md 的内容","timestamp":1762605601000,"workspace":"/home/demo/project","type":null,"conversationId":"11111111-aaaa-4bbb-8ccc-000000000001"}
+{"display":"第二轮：把总结写成一句话。","timestamp":1762605901000,"workspace":"/home/demo/other","type":null,"conversationId":"11111111-aaaa-4bbb-8ccc-000000000001"}
+{"display":"Milestone 42 gate review dispatch","timestamp":1762609200000,"workspace":"/home/demo/project","type":null,"conversationId":"11111111-aaaa-4bbb-8ccc-000000000002"}

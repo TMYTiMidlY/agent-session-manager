@@ -6,6 +6,7 @@ import { parseDsh } from "./adapters/dsh.js";
 import { parseChatGpt } from "./adapters/chatgpt.js";
 import { computeStats, documentFromParsed, finalizeDocument, projectEntries } from "./normalized.js";
 import { parseCursor } from "./adapters/cursor.js";
+import { parseAgy } from "./adapters/agy.js";
 
 /**
  * Every source passes through the unified SessionDocument: adapters either
@@ -20,6 +21,7 @@ export async function parseSession(ref: SessionRef): Promise<ParsedSession> {
   else if (ref.agent === "codex") parsed = await parseCodex(ref);
   else if (ref.agent === "dsh") parsed = await parseDsh(ref);
   else if (ref.agent === "cursor") parsed = await parseCursor(ref);
+  else if (ref.agent === "agy") parsed = await parseAgy(ref);
   else parsed = await parseChatGpt(ref);
 
   parsed = { ...parsed, mtime: parsed.mtime ?? ref.mtime, size: parsed.size ?? ref.size };

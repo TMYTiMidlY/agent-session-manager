@@ -5,11 +5,11 @@
 ![pnpm](https://img.shields.io/badge/pnpm-10.x-f69220?logo=pnpm&logoColor=white)
 ![Vitest](https://img.shields.io/badge/tests-Vitest-6E9F18?logo=vitest&logoColor=white)
 
-**把编码 agent 的 CLI 会话与公开 ChatGPT 分享导出成 Markdown 或单文件 HTML。** `asmgr`（Agent Session ManaGeR）读取 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI、DeepSeek Harness（DSH）及 Cursor Agent 写在本地的会话历史，也可捕获公开 ChatGPT `/share/` 页面，再把选定的会话导出成自包含报告；来源无法完整保留的内容会显式标记。它是**一个**无 scope 的公开 npm 包，命令也叫 `asmgr`；HTML 与 Markdown 是它的导出能力，而非独立发布的产品。
+**把编码 agent 的 CLI 会话与公开 ChatGPT 分享导出成 Markdown 或单文件 HTML。** `asmgr`（Agent Session ManaGeR）读取 GitHub Copilot CLI、Claude Code、OpenAI Codex CLI、DeepSeek Harness（DSH）、Cursor Agent 及 Antigravity CLI（AGY）写在本地的会话历史，也可捕获公开 ChatGPT `/share/` 页面，再把选定的会话导出成自包含报告；来源无法完整保留的内容会显式标记。它是**一个**无 scope 的公开 npm 包，命令也叫 `asmgr`；HTML 与 Markdown 是它的导出能力，而非独立发布的产品。
 
 HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主题、sticky header、类型筛选 pill、侧栏目录、上一条/下一条用户消息跳转、搜索），差异见 [ADR 0003](docs/adr/0003-archive-reconstruction-fidelity.md)。Markdown 产物遵循 Copilot CLI `/share file` 的结构与约定（`### 💬/👤/🔧/✅` 标题、`<sub>⏱️</sub>` 耗时戳、`<details>` 折叠、diff 围栏、`[!NOTE]` 头块）。
 
-它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`、`.dsh`、`.cursor`。传本地 session id 或 `--file` 时，`list` / `search` / `show` / `html` / `md` 都严格本地。只有显式导入或直接读取 ChatGPT 分享 URL，以及按配置访问 restic 仓库的 `backup` 命令会联网。
+它对 agent 状态目录**只读**：不写 `.copilot`、`.claude`、`.codex`、`.dsh`、`.cursor`、`.gemini`。传本地 session id 或 `--file` 时，`list` / `search` / `show` / `html` / `md` 都严格本地。只有显式导入或直接读取 ChatGPT 分享 URL，以及按配置访问 restic 仓库的 `backup` 命令会联网。
 
 > **归档 ≠ 恢复。** 导出的报告是有损、只读、给人看的产物，**不能**反推回可 `--resume` 的原生会话。把会话忠实恢复到"另一台机器能续聊"是一条**规划中**的独立能力（来源 = 备份快照 ∪ 另一台机器），与只读归档严格分层——理念见 [ADR 0001](docs/adr/0001-scope-archive-and-restore.md)。
 
@@ -45,6 +45,7 @@ HTML 产物高度复刻 Copilot CLI 内置 `/share html` 的排版（Primer 主�
 - **Codex CLI**：读取 `~/.codex/sessions/**/*.jsonl`
 - **DeepSeek Harness（DSH）**：读取 `${DSH_HOME:-~/.dsh}/sessions/<project>/<session>/session[.vN].jsonl[.zstd]`；用 `--dsh-root <path>` 覆盖会话根目录。目录发现选择每个会话的最高版本文件；`--file` 指向单个文件时读取指定版本。
 - **Cursor Agent**：只读 `~/.cursor/chats/<workspace-hash>/<session-id>/store.db` 及相邻 metadata；`--agent cursor`（别名 `cursor-agent`）、`--cursor-root <path>`，也支持 `--file /path/to/store.db`。只读取当前 root 的可达消息图，不混入孤立旧分支。该闭源存储没有稳定公开协议；未验证的 protobuf 数字、缺失 token 用量和逐消息时间戳不做推断，局部缺失会给出诊断。
+- **Antigravity CLI（AGY）**：只读 `${AGY_HOME:-~}/.gemini/antigravity-cli/brain/<conversation-id>/.system_generated/logs/transcript.jsonl` 及同行对齐的 `transcript_full.jsonl`（解析优先读未截断版本）；`--agent agy`（别名 `antigravity`）、`--agy-root <path>`，也支持 `--file` 指向单个 transcript。cwd 从同级的 `history.jsonl`（conversationId → workspace 索引）富化；无人类输入的会话按派发消息归类为 subagent 并记录父会话。格式细节见 [AGY 格式说明](docs/agy-format.md)。
 - **ChatGPT 公共分享**：`asmgr import <url>` 从 `/share/<id>` 页面的 React Router 水合数据读取
   `linear_conversation`。默认托管目录中的快照会自动进入 `list/search/show/html/md`；
   也可把 URL 直接传给 `show/html/md`，不落盘使用。
@@ -219,7 +220,7 @@ asmgr search "关键词" -a codex --include-guardian
 
 `quota` 从统一文档读取 Codex primary/secondary 观测，合并所选会话为按小时的 min/max/last 轨迹，保留原始数值精度、余额字符串和来源。默认 UTC，`--timezone` 接受 IANA 时区；重复的 DST 小时按 UTC offset 区分。水位下降/重置时间变化只标记**观测到的证据**，不宣称全局重置。仅请求时刻有采样，间隙未知；`limit_id` 是额度桶，**不是账号 ID**，缺账号标识时明确提示可能混合不同账号。账号额度不按 cwd 百分比分摊。
 
-DSH 的 raw TokenUsage 缺省缓存字段在 harness UI fold 中按 0 折算；本中间层保留缺失为未知，并在每条转换说明中标明此区别，不把显示默认值伪装成原始计量数据。Cursor 未验证的字段也不推断成 token 用量，读取方式与限制见 [Cursor 格式说明](docs/cursor-format.md)。本机全量读取、成品验证、独立审阅与残余边界见 [验证记录](docs/validation-unified-sessions.md)。
+DSH 的 raw TokenUsage 缺省缓存字段在 harness UI fold 中按 0 折算；本中间层保留缺失为未知，并在每条转换说明中标明此区别，不把显示默认值伪装成原始计量数据。Cursor 未验证的字段也不推断成 token 用量，读取方式与限制见 [Cursor 格式说明](docs/cursor-format.md)。Antigravity transcript 的行类型、紧凑/完整双日志与派发关系的读取方式与限制见 [AGY 格式说明](docs/agy-format.md)。本机全量读取、成品验证、独立审阅与残余边界见 [验证记录](docs/validation-unified-sessions.md)。
 
 ### `asmgr current`
 

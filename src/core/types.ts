@@ -1,4 +1,4 @@
-export type AgentKind = "copilot" | "claude" | "codex" | "chatgpt" | "dsh" | "cursor";
+export type AgentKind = "copilot" | "claude" | "codex" | "chatgpt" | "dsh" | "cursor" | "agy";
 
 export interface AgentRoots {
   copilot?: string;
@@ -8,6 +8,7 @@ export interface AgentRoots {
   chatgpt?: string;
   dsh?: string;
   cursor?: string;
+  agy?: string;
 }
 
 export interface SessionRef {
@@ -38,7 +39,7 @@ export interface SessionRef {
  * `turns` table when a session's events.jsonl is absent (e.g. pruned/old).
  */
 export interface SessionSource {
-  kind: "events" | "db-turns" | "chatgpt-share" | "cursor-store";
+  kind: "events" | "db-turns" | "chatgpt-share" | "cursor-store" | "agy-transcript";
   path: string;
   lossy: boolean;
   /** Human-readable caveat explaining exactly what the source omitted. */

@@ -3,6 +3,7 @@ import { iterateJsonl, readJsonl } from "./fs.js";
 import { mapConcurrent } from "./concurrency.js";
 import { sessionMetadata } from "./session-metadata.js";
 import { readDshHeaderMeta } from "./adapters/dsh-reader.js";
+import { probeAgyIdentity } from "./adapters/agy.js";
 
 /**
  * Session-graph relations. Edges are always keyed by `agent:id` — the same
@@ -175,6 +176,9 @@ const record = (value: unknown): Record<string, unknown> =>
  *      guessed `main` (that would disable guardian detection entirely).
  *    - Claude: sidechain rows (`isSidechain: true`) → `subagent`; a readable
  *      non-sidechain session is `main`; unreadable → `unknown`.
+ *    - AGY: a first USER_INPUT row → `main`; a session that opens with a
+ *      dispatched SYSTEM_MESSAGE (sender=<parent conversation id>) →
+ *      `subagent` with `parentSession`.
  * 3. copilot/chatgpt/cursor have no delegation semantics at all — every
  *    session is top-level by construction (`main`).
  * An unreadable or absent source is `unknown`, never a guess.
@@ -216,6 +220,7 @@ export async function probeIdentity(ref: SessionRef): Promise<SessionIdentity> {
       return { role: "unknown" };
     }
   }
+  if (ref.agent === "agy") return probeAgyIdentity(ref);
   return { role: "main" };
 }
 

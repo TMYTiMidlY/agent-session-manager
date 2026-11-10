@@ -4,10 +4,10 @@
 
 | 选项 | 作用 |
 |---|---|
-| `-a, --agent <agent>` | 限定来源：`copilot\|claude\|codex\|chatgpt\|dsh\|cursor\|all`（cursor 别名 `cursor-agent`） |
+| `-a, --agent <agent>` | 限定来源：`copilot\|claude\|codex\|chatgpt\|dsh\|cursor\|agy\|all`（cursor 别名 `cursor-agent`，agy 别名 `antigravity`） |
 | `--file <path>` / `--events <path>` | 读显式文件或目录（`*.jsonl`、DSH `*.jsonl.zstd`、`*.chatgpt-share.json`、Cursor `store.db`）替代 live 主目录，格式自动探测 |
 | `--cwd <path>` | 精确匹配会话记录的工作目录（规范化 `~` 与尾部斜杠，递归包含子目录） |
-| 各 root 覆盖 | `--copilot-root` / `--copilot-db` / `--claude-root` / `--codex-root` / `--chatgpt-root` / `--dsh-root` / `--cursor-root` |
+| 各 root 覆盖 | `--copilot-root` / `--copilot-db` / `--claude-root` / `--codex-root` / `--chatgpt-root` / `--dsh-root` / `--cursor-root` / `--agy-root` |
 
 ## 会话发现：list 与 current
 
@@ -82,4 +82,4 @@ asmgr backup cache latest --host <host> --target ~/.cache/asmgr/restic-cache  # 
 
 导入快照权限 0600，目标已存在时需 `--force`；私有 `/c/...` 地址栏会话拒绝抓取并提示先在 ChatGPT 里点"分享"。npm 安装暂不包含备份运行时，需源码 checkout。
 
-> 各来源的持久化位置与限制（Copilot events.jsonl 缺失时的 db 回退、DSH 压缩与多代目录、Cursor 闭源 store.db）见 [README「支持的 agent 与数据来源」](https://github.com/TMYTiMidlY/agent-session-manager/blob/v0.7.0/README.md#支持的-agent-与数据来源)。
+> 各来源的持久化位置与限制（Copilot events.jsonl 缺失时的 db 回退、DSH 压缩与多代目录、Cursor 闭源 store.db、Antigravity transcript.jsonl / transcript_full.jsonl 双日志）见 [README「支持的 agent 与数据来源」](https://github.com/TMYTiMidlY/agent-session-manager/blob/v0.7.0/README.md#支持的-agent-与数据来源)。

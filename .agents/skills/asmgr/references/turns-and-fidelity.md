@@ -13,6 +13,7 @@
 | Codex | 正文以 `# AGENTS.md instructions for`、`<user_instructions>`、`<environment_context>`、`<turn_context>`、`<codex_internal_context`（goal 续跑）、`<skill>` 开头 |
 | Claude | 行带 `isMeta` 或 `isCompactSummary` 标记 |
 | DSH / Copilot / ChatGPT | 适配器只把人类输入归入 user 消息，默认无需排除 |
+| AGY | USER_INPUT 正文原样保留（含 `<USER_REQUEST>` 包装与系统附注），每条 USER_INPUT 就是一轮人类输入 |
 
 由此产生的语义要点：
 
@@ -51,6 +52,7 @@ dialogue 的角色过滤与主干过滤取交集：`--role user` + dialogue 输�
 - **ChatGPT 分享**：公开页隐藏的工具结果无法恢复；只有资源指针的图片/附件显示占位符。
 - **DSH**：图片/文件只显示占位符并提示损失；压缩 checkpoint 只显示已知摘要。
 - **Cursor**：闭源 store.db，未验证的 protobuf 数字不做推断，局部缺失给诊断。
+- **AGY**：解析优先读未截断的 `transcript_full.jsonl`；仅剩紧凑 `transcript.jsonl` 且含 `truncated_fields` 标记时明确警告损失。工具参数按 AGY 的一层 JSON 编码还原；CHECKPOINT 的 token 数是上下文规模快照，不计入会话用量。
 
 统一格式口径：`inputTokens` 是**未缓存输入**，`cacheReadTokens`/`cacheWriteTokens` 独立成桶，`reasoningTokens` 是输出子集；缺值保持未知，不假装成零。精确响应增量按 `response_id` 去重，旧日志只有累计快照时明确标记口径。
 

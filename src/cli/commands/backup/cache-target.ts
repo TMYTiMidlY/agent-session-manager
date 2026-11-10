@@ -30,6 +30,7 @@ export function assertSafeCacheTarget(target: string): string {
     join(home, ".copilot"),
     join(home, ".claude"),
     join(home, ".codex"),
+    join(home, ".gemini"),
     resolve(chatGptRoot()),
   ];
   for (const forbidden of forbiddenRoots) {

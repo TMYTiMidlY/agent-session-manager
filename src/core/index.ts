@@ -8,6 +8,7 @@ import { discoverCodex } from "./adapters/codex.js";
 import { discoverCursor, refFromCursorFile } from "./adapters/cursor.js";
 import { discoverCopilot } from "./adapters/copilot.js";
 import { discoverDsh, discoverDshRef, dshLogVersion, isDshHeader, refFromDshFile, selectDshGenerations } from "./adapters/dsh.js";
+import { agyConversationId, discoverAgy, isAgyRow } from "./adapters/agy.js";
 import {
   discoverChatGpt,
   isChatGptShareSnapshot,
@@ -41,7 +42,7 @@ export {
   type ChatGptShareSnapshot,
 } from "./adapters/chatgpt.js";
 
-export const AGENTS: AgentKind[] = ["copilot", "claude", "codex", "chatgpt", "dsh", "cursor"];
+export const AGENTS: AgentKind[] = ["copilot", "claude", "codex", "chatgpt", "dsh", "cursor", "agy"];
 
 export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: AgentRoots = {}): Promise<SessionRef[]> {
   const found: SessionRef[] = [];
@@ -51,6 +52,7 @@ export async function discoverSessions(agents: AgentKind[] = AGENTS, roots: Agen
   if (agents.includes("chatgpt")) found.push(...(await discoverChatGpt(roots.chatgpt)));
   if (agents.includes("dsh")) found.push(...(await discoverDsh(roots.dsh)));
   if (agents.includes("cursor")) found.push(...(await discoverCursor(roots.cursor)));
+  if (agents.includes("agy")) found.push(...(await discoverAgy(roots.agy)));
   return sortSessionRefs(await enrichSessionRefs(found));
 }
 
@@ -121,6 +123,9 @@ const CLAUDE_TYPES = new Set(["user", "assistant", "system", "ai-title", "summar
  */
 export function detectAgent(rows: unknown[], path?: string): AgentKind | undefined {
   if (isDshHeader(rows[0])) return "dsh";
+  // AGY rows are signature-strong (step_index + source + AGY type vocabulary);
+  // check them before the weaker payload/shape heuristics.
+  if (rows.slice(0, 50).some(isAgyRow)) return "agy";
   let copilot = 0;
   let codex = 0;
   let claude = 0;
@@ -167,6 +172,7 @@ function deriveId(path: string, agent: AgentKind, rows: unknown[]): string {
     const name = fileStem(path);
     return name.match(/([0-9a-f]{8}-[0-9a-f-]{27,})$/i)?.[1] ?? name;
   }
+  if (agent === "agy") return agyConversationId(path);
   return fileStem(path);
 }
 
@@ -246,7 +252,11 @@ export async function discoverPath(path: string, agentOverride?: AgentKind): Pro
   if (info.isFile()) return enrichSessionRefs([await refFromFile(abs, agentOverride)]);
   const files = selectDshGenerations(await walkFiles(
     abs,
-    (candidate) => basename(candidate) === "store.db" || candidate.endsWith(".jsonl") || candidate.endsWith(".chatgpt-share.json")
+    // `history.jsonl` is the Antigravity per-home conversation index, not a
+    // session transcript — restored AGY homes carry it next to brain/, and a
+    // directory walk must not fail on it.
+    (candidate) => (basename(candidate) !== "history.jsonl")
+      && (basename(candidate) === "store.db" || candidate.endsWith(".jsonl") || candidate.endsWith(".chatgpt-share.json"))
       || (candidate.endsWith(".jsonl.zstd") && dshLogVersion(candidate) !== undefined),
   ));
   const refs = await mapConcurrent(files, 8, file => dshLogVersion(file) !== undefined && (!agentOverride || agentOverride === "dsh")

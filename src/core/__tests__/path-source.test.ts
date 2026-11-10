@@ -86,7 +86,7 @@ describe("discoverPath", () => {
   it("walks a directory and classifies each agent", async () => {
     const refs = await discoverPath(fixtures);
     const agents = new Set(refs.map((ref) => ref.agent));
-    expect(agents).toEqual(new Set(["copilot", "claude", "codex", "chatgpt"]));
+    expect(agents).toEqual(new Set(["copilot", "claude", "codex", "chatgpt", "agy"]));
   });
 
   it("throws for a missing path", async () => {
