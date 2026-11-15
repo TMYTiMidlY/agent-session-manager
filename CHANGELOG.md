@@ -1,3 +1,10 @@
+# [0.8.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.7.0...v0.8.0) (2026-11-15)
+
+
+### Features
+
+* read Antigravity CLI brain transcripts ([717d6b7](https://github.com/TMYTiMidlY/agent-session-manager/commit/717d6b757607ea93b469d95c15b703bce8bd8bf8))
+
 # [0.7.0](https://github.com/TMYTiMidlY/agent-session-manager/compare/v0.6.1...v0.7.0) (2026-10-19)
 
 
